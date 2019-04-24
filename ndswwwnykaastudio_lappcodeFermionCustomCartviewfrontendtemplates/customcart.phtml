@@ -1,0 +1,988 @@
+<?php 
+error_log("********************phtml call**********************");
+$styleclass = '';
+$totalQuantity = 0;
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$productRepository = $objectManager->get('\Magento\Catalog\Model\ProductRepository');
+$catalogHelper = $objectManager->create('\Fermion\Catalog\Helper\Data');
+$scopeConfig = $objectManager->create('Magento\Framework\App\Config\ScopeConfigInterface');
+$offerPath = 'general/nykaa_offer/nykaa_offer_active';
+$nykaaOffer =  $scopeConfig->getValue(
+       $offerPath,
+       \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+   );
+
+$customerSession = $objectManager->get('Magento\Customer\Model\Session');
+$cart = $objectManager->create('\Magento\Checkout\Model\Session');
+$urlInterface = $objectManager->get('\Magento\Framework\UrlInterface');
+$redirect = $objectManager->get('\Magento\Framework\App\Response\Http');
+$_helper = $this->helper('Magento\Catalog\Helper\Output');
+$imageHelper = $objectManager->get(\Magento\Catalog\Helper\Image::class);
+$key_form = $objectManager->get('Magento\Framework\Data\Form\FormKey');
+$form_Key = $key_form->getFormKey();
+
+$currencysymbol = $objectManager->get('Magento\Store\Model\StoreManagerInterface');
+$store = $currencysymbol->getStore();
+$rate = $store->getCurrentCurrencyRate();
+
+$currency = $currencysymbol->getStore()->getCurrentCurrencyCode();
+$detectedCountry = isset($_COOKIE['countryName']) ? $_COOKIE['countryName'] : 'IN';
+
+$IconfigPath = 'carriers/flatrate/international_shipping_days';
+$international_shipping_days =  $scopeConfig->getValue(
+  $IconfigPath,
+  \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+);
+
+$notInternationalHtml = '<div class="noInterPopWrap"><div class="noInterPopup">
+                    <div class="popupHead">
+                        <div class="canelImg"><img src="/pub/static/frontend/Nykaa/theme001/en_US/images/cancel_Del.svg"></div>
+                        <div class="headText">A few items in your cart are not eligible for international shipping.</div>
+                    </div>
+                    <div class="popupmiddle">';
+$notInternationalIds = array();
+
+$quote = $cart->getQuote();
+
+    $priceHelper = $objectManager->create('Magento\Framework\Pricing\Helper\Data'); // Instance of Pricing Helper
+    $totalQuantity = $cart->getQuote()->getItemsQty(); //Current Cart Items qty’s
+
+    $subTotal = $cart->getQuote()->getSubtotal();
+    $offer_subtotal = $subTotal;
+    $subTotal = number_format($subTotal, 2);
+    $shippingAmount = $quote->getShippingAddress()->getShippingAmount();
+   
+    $totalItems = $quote->getItemsCount();
+    $items = $cart->getQuote()->getAllVisibleItems();
+    $shippingAddress = $quote->getShippingAddress();
+    $shippingCharge = $shippingAddress->getShippingAmount();
+    $grandtotal = $cart->getQuote()->getGrandTotal();
+    $grandtotal = number_format($grandtotal, 2);
+
+    $shippingAmount = $shippingAddress->getShippingAmount();
+    if(!$quote->getId()=='')
+    { 
+     $quoteId = $quote->getId();
+     $resource = $objectManager->get('Magento\Framework\App\ResourceConnection');
+     $connection= $resource->getConnection();
+     $sql  = "select shipping_amount from quote_address where quote_id =".$quoteId." and address_type = 'shipping'";
+     $resultAll = $connection->fetchAll($sql);
+     if(isset($resultAll[0]['shipping_amount']) && $resultAll[0]['shipping_amount'] != ''){
+        $shippingAmount = $resultAll[0]['shipping_amount'];
+      }
+    }
+    $shippingAmount = number_format($shippingAmount,2);
+    $shippingAmount = str_replace(',', '', $shippingAmount);
+
+    //$shippingCharge -=$shippingCharge;
+    $discountTotal = 0;
+    foreach ($quote->getAllItems() as $item) {
+        if ($currency == 'INR') {
+            $discountTotal+= $item->getDiscountAmount();
+        } else {
+            $discountTotal+= $item->getDiscountAmount();
+        }
+    }
+      $discountTotal = number_format(abs($discountTotal), 2);
+      $discountTotal = str_replace(',', '', $discountTotal);
+ // $grandtotal = $cart->getQuote()->getGrandTotal().'grandtotal';
+
+
+    
+    $currencys = $objectManager->create('Magento\Directory\Model\CurrencyFactory')->create()->load($currency);
+    $currencySymbol = $currencys->getCurrencySymbol();
+    $totalqty = $quote->getItemsQty();
+    $priceCurrencyObject = $objectManager->get('Magento\Framework\Pricing\PriceCurrencyInterface');
+    $storeManager = $objectManager->get('Magento\Store\Model\StoreManagerInterface');
+    $listBlock = $objectManager->get('\Magento\Catalog\Block\Product\ListProduct');
+    $currency = $storeManager->getStore()->getCurrentCurrencyCode();
+    $store = $objectManager->get('Magento\Store\Model\StoreManagerInterface')->getStore();
+    $stockItemRepository = $objectManager->get('\Magento\CatalogInventory\Model\Stock\StockItemRepository');
+    $productStockObj = $objectManager->get('Magento\CatalogInventory\Api\StockRegistryInterface');
+    $StockState = $objectManager->get('\Magento\CatalogInventory\Api\StockStateInterface');
+    $mediaUrl =  $storeManager->getStore()->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_MEDIA);
+
+    ?>
+
+    <div class="nyCart">
+        <input type="hidden" id="cartdiscountTotal" value="<?php echo $discountTotal; ?>">
+        <div class="nyloader" style="display: none;">
+            <div class="blobs">
+                <div class="blob-center"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/N.svg" style="height: 20px; width: 20px; margin:auto; margin-bottom: 5px;"></div>
+                <div class="blob"></div>
+                <div class="blob"></div>
+                <div class="blob"></div>
+                <div class="blob"></div>
+                <div class="blob"></div>
+                <div class="blob"></div>
+            </div>
+        </div>
+        
+        <div class="nyCartBlock">
+            <input type="hidden" name="removeItems_checkout" id="removeItems_checkout">
+            <input type='hidden' id="cartitemsqty" value="<?php echo (int)$totalqty; ?>">
+            <input type="hidden" id="cartquantity" name="cartquantity" value="<?php echo (int)$totalqty; ?>">
+            <input type="hidden" id="nykaa_offer" value="<?php echo $nykaaOffer; ?>">
+            <input type="hidden" id="cartShippingTotal" value="<?php echo $shippingAmount;?>">
+            <h3 class="shpingbg">SHOPPING BAG <span class="cartquantity">(<?php echo (int)$totalqty; ?>)</span>
+            </h3>
+            <div class="cartClose close"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Magento_Theme/images/icons-close.svg"></div>
+
+            <?php if(count($items)>0): ?>
+                <div class="cartProduct">
+                    <ul>
+                        <li>Item</li>
+                        <li>Description</li>
+                        <li>Color</li>
+                        <li>Size</li>
+                        <li>Qty</li>
+                        <li>Unit Price</li>
+                        <li>Item Total</li>
+                    </ul>
+                </div>
+
+                <div class="cartProductdetails">
+                 <div class="cartproductrows">  
+                    <?php
+                    foreach($items as $item):
+                        $product = $item->getProduct(); 
+                        
+                        if($product['small_image'] == ''){
+                            $image ='';
+                        }else{
+                            $image = $mediaUrl.'catalog/product'.$product['small_image'];
+                        }
+                        $options = $item->getProduct()->getTypeInstance(true)->getOrderOptions($item->getProduct());
+                        // echo '<pre>';print_r($options);echo '</pre>';
+
+                        $options['attributes_info'] = isset($options['attributes_info']) ? $options['attributes_info'] :array();
+                        $sel_attrval = '';
+                        $c_productId =  isset($options['simple_sku']) ? $options['simple_sku'] :'';
+                        
+                        if(isset($options['attributes_info']))
+                        {
+                            
+                            foreach ($options['attributes_info'] as $key => $value) {
+                                if($value['label'] == 'size' || $value['label'] == 'Size')
+                                {
+                                    $sel_attrval = $value['value'];
+                                    
+                                }
+                                
+                            }
+                            
+                        }
+                        $customOptions = $options['attributes_info'];
+                        
+                        $attributeArr = array();
+                        if (!empty($customOptions)) {
+                            foreach ($customOptions as $optionkey=>$option) { 
+                                $attributeArr[$option['label']] = $option['value'];
+                            }
+                        }
+                        ?>  
+                        
+                        <ul class="product-row-<?php echo $item->getItemId(); ?>">
+                            <li>
+                                <?php $product = $objectManager->create('Magento\Catalog\Model\Product')->load($item->getProduct()->getId()); 
+
+                                $optionText ='';
+                                $attr = $product->getResource()->getAttribute('brand');
+                                if ($attr->usesSource()) {
+                                 $optionText = $attr->getSource()->getOptionText($product->getData('brand'));
+                             }
+                             ?>
+                             <a href="<?php echo $product->getProductUrl(); ?>?root=cart" target="_blank"><img src="<?php echo $image; ?>"></a>
+                         </li>
+                         <li>
+                            <h3><?php echo $optionText; ?></h3>
+                            <i class="fa fa-ellipsis-v fa-lg"></i>
+
+                            <p class="opText"><a href="<?php echo $product->getProductUrl(); ?>?root=cart" target="_blank"><?php 
+
+                            //echo str_replace($optionText,'',$product->getName()); 
+                            $prodName=preg_replace('~'.$optionText.'~i','',$product->getName(),1);
+                            echo $prodName;
+                            ?></a></p>
+                            <div class="unitPrice">&#x20B9;8,600 <span>&#x20B9;8,600</span></div>
+
+                            <?php $shipsIn = $product->getData('ships_in'); 
+                            if($shipsIn <= 10){
+                                $shipsIn = 5;
+                            }elseif($shipsIn <= 15){
+                                $shipsIn = 7;
+                            }else{
+                                $shipsIn = round($shipsIn / 2);
+                            }
+
+
+                            if($detectedCountry != 'IN'){
+                                $shipsIn = $shipsIn + (int) $international_shipping_days;
+                            }
+
+
+                            $is_international ='';
+                            $attr = $product->getResource()->getAttribute('is_international');
+                            if ($attr->usesSource()) {
+                                $is_international = strtolower($attr->getSource()->getOptionText($product->getData('is_international')));
+                            }
+
+                            if($detectedCountry == 'IN'){ ?>
+                                <span><?php echo 'Delivered in '.$shipsIn.' business days'; ?></span>
+                            <?php }else if($detectedCountry != 'IN' && $is_international == 'yes'){ ?>
+                                <span><?php echo 'Delivered in '.$shipsIn.' business days'; ?></span>
+                            <?php }else{ ?>
+                                <span style="visibility: hidden;"><?php echo 'Delivered in '.$shipsIn.' business days'; ?></span>
+                            <?php } ?>
+
+
+                            
+                            <?php
+                            
+                            $isSalable_ = $product->isSalable();
+                            
+                            $stockQty = $StockState->getStockQty($product->getId(), $product->getStore()->getWebsiteId());
+                            
+                            if($c_productId != '')
+                            {
+                             
+                                $c_product = $objectManager->create('\Magento\Catalog\Api\ProductRepositoryInterface')->get($c_productId);
+                                $isSalable_ = $c_product->isSalable();
+                                $stockQty = $StockState->getStockQty($c_product->getId(), $c_product->getStore()->getWebsiteId());  
+                            }
+                            
+                            $itmqtyerror = 0;
+
+                            if($item->getQty() > $stockQty)
+                            {
+                                $itmqtyerror = 1;
+                            }
+                            if($isSalable_ != 1 || $itmqtyerror == 1)
+                            {
+                                $Emessage = 'This product is Out Of Stock';
+                                if($itmqtyerror == 1)
+                                {
+                                    $Emessage = 'We Don\'t have as many "'.str_replace($optionText,'',$product->getName()).'" as added in cart.';
+                                }
+
+
+
+
+                                echo '<span class="error_text_color cc_outofstock">'.$Emessage.'</span>';
+                            }
+                            ?>
+                            <input type="hidden" id="itemnm_<?php echo $item->getId(); ?>" data-nmqty="<?php echo $item->getQty(); ?>" data-nmsku="<?php echo $product->getSku();  ?>" value="<?php echo $this->stripTags($product->getName()); ?>">
+                            <a href="javascript:void(0)" onclick ="removecartItem(<?php echo $item->getId() ?>, true)">Remove Item</a>
+
+                            
+                            <a href="javascript:void(0)" class="move_to_wishlist cc_mvtowishbtn_<?php echo $item->getProductId(); ?>  <?php if(!$customerSession->isLoggedIn()){echo 'hide';}?>" onclick="moveToWishlist(<?php echo $item->getProductId().','.$item->getItemId();?>)">Move to Wishlist</a>
+                            
+                            <?php 
+
+                            if($is_international == 'no'){ 
+                                array_push($notInternationalIds, $item->getId());
+                                $productss = $productRepository->get($item->getSku());
+                                $SpecialPrice = '';
+                                $finalPrice = '';
+                                if ($detectedCountry != 'IN') { ?>
+
+                                    <div class="noInternationalShip">*This item is not eligible for International Shipping</div>
+
+                        <?php       $price_key = 'price_'.strtolower($detectedCountry);
+                                    $rg_price = $item->getData('price');
+                                    $sp_price = $item->getData('special_price');
+
+                                    if(!empty($productss->getSpecialPrice())){
+                                        $sp = $productss->getSpecialPrice();
+                                    }else{
+                                        $sp = $item->getFinalPrice();
+                                    }
+
+                                    if($sp_price){
+                                        $discount_amount = $rg_price - $sp_price;
+                                        $discount_percent = round($discount_amount / $rg_price * 100);
+                                    }else{
+                                        $discount_percent = 0;
+                                        $discount_amount = 0;
+                                    }
+
+                                    $price = $productss->getData($price_key);
+                                    $new_price = $price ? $price : $rg_price;
+
+                                    if($new_price != $rg_price){
+                                        if($discount_percent != 0){
+                                            $discount_amount = number_format($discount_percent / 100 * $new_price, 4, '.', '');
+                                            $sp = number_format($new_price - $discount_amount, 4, '.', '');
+                                        }
+                                        $rg_price = $new_price;
+                                    }
+
+                                    $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$rg_price));
+                                    $SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$sp));
+                                  
+                                }else{
+
+                                  if (!empty($productss->getSpecialPrice())) {
+                                    $SpecialPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$productss->getSpecialPrice()));
+                                    $finalPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$product->getData('price')));
+                                  }else{
+
+                                    $finalPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$product->getData('price')));
+                                  } 
+                                }
+                                $notInternationalHtml .= "<div class='productWrap'>";
+                                $notInternationalHtml .= "<div class='productImg'>";
+                                $notInternationalHtml .= "<img src='$image'></div>";
+                                $notInternationalHtml .= "<div class='productDetail'>";
+                                $notInternationalHtml .= "<div class='productName'>".$optionText."</div>";
+                                $notInternationalHtml .= "<div class='productDetail'>".str_replace($optionText,'',$product->getData('name'))."</div>";
+
+                                if($SpecialPrice && $SpecialPrice != $finalPrice){
+                                    error_log($product->getSku(). " SKU!!!!");
+                                    error_log($SpecialPrice. '  SpecialPrice!!!');
+                                    error_log($finalPrice. '  finalPrice!!!');
+                                    // die('HEREEE');
+                                    $notInternationalHtml .= "<div class='productPrice'><span class='offerprice'>".$currencySymbol.$SpecialPrice."</span>";
+                                    // <span class='price'>".$currencySymbol.$finalPrice."</span></div>";
+                                }else{
+                                    error_log($product->getSku(). " SKU!!!!");
+                                    error_log($finalPrice. '  finalPrice');
+                                    $notInternationalHtml .= "<div class='productPrice'><span class='offerprice'>".$currencySymbol.$finalPrice."</span>";
+                                }
+                                $notInternationalHtml .= "</div></div></div>";
+                                    
+                                        
+                                        
+                                        // <div class='productPrice'><span class='offerrice'>₹7,480</span><span class='price'>₹8,480</span></div>
+                                ?>
+                                
+                            <?php } ?>
+                            
+
+                        </li>
+                        <?php
+                        $optionId=$product->getPrimaryColor();
+                        $optionText = '';
+                        $attr = $product->getResource()->getAttribute('primary_color');
+                        if ($attr->usesSource()) {
+                            $optionText = $attr->getSource()->getOptionText($optionId);
+                        }
+                        ?>
+                        <li><?php echo $optionText ? $optionText : 'NA'; ?></li>
+
+                        <li>
+
+                            <?php if ($product->getTypeId() == \Magento\ConfigurableProduct\Model\Product\Type\Configurable::TYPE_CODE):?>
+
+
+                               <?php  
+                               $data = array();
+                               $data = $item->getProduct()->getTypeInstance()->getConfigurableOptions($item->getProduct());
+                               $options = array();
+                               foreach($data as $attr){    
+                                foreach($attr as $p){
+                                    $options[$p['sku']][$p['attribute_code']] = $p['option_title'];
+                                }
+                            }
+
+
+                            ?>
+                            <span><?php echo $sel_attrval; ?></span>
+
+                            <div class="btn-group selectSize numerice <?php if(count($options) <= 1){echo 'disableDropdown';}?>">
+                                <span class="selected_sizeattr_<?php echo $item->getItemId(); ?>" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                    <?php echo $sel_attrval; ?>
+                                    <?php 
+                                        if(count($options)>1){
+                                            echo '<div class="arrows"></div>';
+                                        }
+                                    ?>
+                                    
+                                </span>
+                            <div class="dropdown-menu dropDown">
+                                <?php
+                                foreach ($options as $sku =>$d)
+                                {
+                                    $dsize = $d['size'];
+                                    if($sel_attrval != $d['size'])
+                                    {
+                                        echo '<a onclick="updateSize(this)" data-prodsku="'.$sku.'" data-optid="'.$item->getItemId().'" data-selcsize="'.$dsize.'">'.$d['size'].'</a>';
+                                    }
+                                }
+                                ?>
+                            </div>
+                        </div>
+                        <?php else: ?>
+                            <?php 
+                            $size_attr = $product->getResource()->getAttribute('size');
+                            $size_optionText = '';
+                            if ($attr->usesSource()) {
+                             $size_optionText = $size_attr->getSource()->getOptionText($product->getData('size'));
+                         }
+                         echo ($size_optionText != '')? '<div class="simple_prdouct_s">'.$size_optionText.'</div>' : '<div class="simple_prdouct_s">One Size</div>'; ?>
+                     <?php  endif;?>
+                 </li>
+                 <li>
+
+                    <?php 
+                    $resourceConnection = $objectManager->get('\Magento\Framework\App\ResourceConnection');
+                    $connection = $resourceConnection->getConnection();
+                    $item_id = $item->getItemId();
+
+                    if($item->getProductType() == 'configurable'){
+                        $sql = "SELECT qty, (select product_id FROM quote_item WHERE parent_item_id = $item_id) as product_id FROM quote_item where item_id = $item_id";
+                    }else{
+                     $sql = "SELECT qty, product_id FROM quote_item where item_id = $item_id";
+                 }
+
+                 $result2 = $connection->fetchROW($sql);
+
+                 $productArrayRem[$result2['product_id']] = ceil($result2['qty']);
+
+                 ?>
+                 <input type="hidden" value="<?php echo $item->getQty(); ?>" id="inputQty_<?php echo $item->getItemId(); ?>">
+                 <span>Qty <div class="count"><?php echo $item->getQty(); ?></div></span>
+                 <div class="btn-group selectSize numerice">
+                  <span class="selected_qtyattr_<?php echo $item->getItemId(); ?>" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" data-itemqty="<?php echo $item->getQty(); ?>">
+                    <?php echo $item->getQty(); ?>
+                    <div class="arrows"></div>
+                </span>
+                <div class="dropdown-menu dropDown">
+                    <?php
+                    for($i=1; $i<7;$i++){
+                        if($item->getQty() != $i){
+                            echo '<a onclick="updateQuantity(this)" data-optid="'.$item->getItemId().'" data-itemqty="'.$i.'">'.$i.'</a>';
+                        }
+                    }
+                    ?>
+                </div>
+            </div>
+            
+        </li>
+        <li>
+            <?php
+            // error_log($item->getPrice(). ' item price custom cart!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+            $ConvertedPrice = $catalogHelper->CurrencyClone(str_replace(',', '', $item->getPrice()));
+            echo $currencySymbol.number_format(round($ConvertedPrice,0)); ?>
+            
+
+        </li>
+
+        <li>
+            <?php
+            $quantityPrice = preg_replace('/[^\d.]/', '', $item->getQty() * $item->getPrice());
+            $quantityPrice = $catalogHelper->CurrencyClone($quantityPrice);
+            ?>
+
+            <input type="hidden" id="itm_price_<?php echo $item->getItemId(); ?>" value="<?php echo preg_replace('/[^\d.]/', '', $quantityPrice);?>"> 
+
+            <input type="hidden" id="itm_discount_<?php echo $item->getItemId(); ?>" value="<?php echo preg_replace('/[^\d.]/', '', number_format($item->getDiscountAmount(), 2)); ?>">
+
+            <input type="hidden" value="<?php echo $currency; ?>" id="current-currency">
+
+            <?php
+            echo $currencySymbol.number_format(round($quantityPrice,0));
+            ?></li>
+        </ul>
+
+        <?php
+        if($totalItems > 1)
+        {
+            echo '<div class="divider"></div>';
+        }
+        ?>
+        
+        
+        <ul class="product-row-<?php echo $item->getItemId(); ?> undoitem_<?php echo $item->getItemId(); ?> undoitem_html">
+            <div class="removedItemCart">
+                <div class="productImg"><img src="<?php echo $image; ?>"></div>
+                <h3><?php echo $item->getName(); ?></h3>
+                <span>has been removed</span>
+                <a href="javascript:void(0)" onclick="removecartItem(<?php echo $item->getItemId(); ?>,false)">Undo</a>
+            </div>
+        </ul>
+
+        <div class="divider undoitem_<?php echo $item->getItemId(); ?> undoitem_html"></div>
+
+
+
+        
+        
+    <?php 
+    endforeach;?>
+    <?php 
+    $notInternationalHtml .= '</div>
+                    <div class="footer">
+                        <div class="button removeAll"><a href="">REMOVE ALL & PROCEED</a></div>
+                    </div>
+                </div>';
+    ?>
+    <input type="hidden" id="productArrayRem" value='<?php echo  json_encode($productArrayRem);?>'>
+</div>
+<?php if($customerSession->isLoggedIn()):
+
+    $wishlistProvider = $objectManager->create('\Magento\Wishlist\Controller\WishlistProviderInterface');
+
+    $whishlishCollection=$wishlistProvider->getWishlist();;
+
+    $productCollection = $whishlishCollection->getItemCollection();
+    
+    
+    if(count($productCollection) > 0):
+
+        ?> 
+        <input type="hidden" id="wishlistcountproducts" value="<?php echo count($whishlishCollection); ?>">
+        
+        <div class="wishListInfo">
+            <div class="wishHeader" aria-expanded="false">
+                <div class="icon"><span><?php echo count($productCollection); ?></span></div> <h2>ADD MORE ITEMS FROM WISHLIST <!-- <div class="discount"><div class="count">- 1 </div>  Item on Discount!</div>--> <span></span> </h2>
+            </div>
+            <div class="wishListInfoSlider">
+
+                <section class="cartWishList slider">
+
+                    <?php
+
+                    $i = 0;
+
+                    foreach ($productCollection as $item)
+                    {
+
+                        $productId = $item->getProductId();
+                        if($i == 0)
+                        {
+                            $styleclass .= '.cc_mvtowishbtn_'.$productId;
+                        }
+                        else
+                        {
+                            $styleclass .= ',.cc_mvtowishbtn_'.$productId;
+                        }
+                        
+                        $product = $objectManager->create('Magento\Catalog\Model\Product')->load($productId);
+                        
+                        $postParams =  $listBlock->getAddToCartPostParams($product); 
+                        $imageUrl = $store->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_MEDIA) . 'catalog/product' . $product->getImage();
+                        $itemId = $item->getId();
+
+                        ?>
+
+                        <div class="wishlistDiv_<?php echo $itemId; ?>">
+                         
+                            <form data-wishlistitemid="<?php echo $itemId;  ?>" id="cc_addform_<?php echo $productId; ?>" data-role="tocart-form" action="<?php /* @escapeNotVerified */ echo $postParams['action']; ?>" method="post">
+                                <input type="hidden" name="product" value="<?php /* @escapeNotVerified */ echo $postParams['data']['product']; ?>">
+                                <input type="hidden" name="uenc" value="<?php /* @escapeNotVerified */ echo $postParams['data']['uenc']; ?>">
+                                <input type="hidden" name="form_key" value="<?php echo $form_Key; ?>">
+                                <input type="hidden" name="selected_configurable_option" value="">
+                                <input type="hidden" name="related_product" value="">
+                            </form>
+                            <div class="wishProductBlock">
+                                <div class="productWrap">
+                                    <div class="productImg">
+                                        
+                                       <?php
+                                       if ($product->getImage() !='no_selection') {
+
+                                        echo '<img src="'.$imageUrl.'">';
+                                    }
+                                    else
+                                    {
+                                       echo '<img src="'.$placeholderImageUrl.'">';
+                                   }
+                                   ?>
+
+                               </div>
+                               <div class="wishContent">
+                                <div class="productTitle"> 
+                                    <?php
+                                    $optionText ='';
+                                    $attr = $product->getResource()->getAttribute('brand');
+                                    if ($attr->usesSource()) {
+                                       $optionText = $attr->getSource()->getOptionText($product->getData('brand'));
+                                   }
+
+                                   echo strtoupper($optionText);                           
+                                   ?>
+                                   
+                               </div>
+                               <div class="description">
+                                <?php /* @escapeNotVerified */ echo ucwords($_helper->productAttribute($product, str_replace($optionText,'',$product->getName()), 'name')); ?>
+                            </div>
+
+                            <!-- changed by shubhanshu for international -->
+    <div class="productPrice">
+     <?php
+     $productss = $productRepository->get($product->getSku());
+        
+        $SpecialPrice='';
+        $finalPrice='';
+        // if (isset($_GET['ci']) && $_GET['ci'] !='IN') {
+        if ($detectedCountry != 'IN') {
+
+            $price_key = 'price_'.strtolower($detectedCountry);
+            $rg_price = $product->getData('price');
+            $sp_price = $product->getData('special_price');
+
+            if(!empty($productss->getSpecialPrice())){
+                $sp = $productss->getSpecialPrice();
+            }else{
+                $sp = $product->getFinalPrice();
+            }
+
+            if($sp_price){
+                $discount_amount = $rg_price - $sp_price;
+                $discount_percent = round($discount_amount / $rg_price * 100);
+            }else{
+                $discount_percent = 0;
+                $discount_amount = 0;
+            }
+
+            $price = $productss->getData($price_key);
+            $new_price = $price ? $price : $rg_price;
+
+            if($new_price != $rg_price){
+                if($discount_percent != 0){
+                    $discount_amount = number_format($discount_percent / 100 * $new_price, 4, '.', '');
+                    $sp = number_format($new_price - $discount_amount, 4, '.', '');
+                }
+                $rg_price = $new_price;
+            }
+
+            $finalPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$rg_price));
+            $SpecialPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$sp));
+          
+        /*if ((int)$productss->getPriceValueNds() > 0) {
+
+          if ((int)$productss->getSpecialPrice() > 0) {
+            $SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productss->getSpecialPrice()));
+            $percent= $product->getData('price')*$productss->getPriceValueNds()/100;
+            $final= $product->getData('price')+$percent;
+            $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$final));
+
+          }else{
+
+            $percent= $product->getData('price')*$productss->getPriceValueNds()/100;
+            $final= $product->getData('price')+$percent;
+            $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$final));
+          }
+
+        }else{
+
+          if (!empty($productss->getSpecialPrice())) {
+            $SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productss->getSpecialPrice()));
+            $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$product->getData('price')));
+          }else{
+
+            $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$product->getData('price')));
+          } 
+        }*/
+      }else{
+
+          if (!empty($productss->getSpecialPrice())) {
+            $SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productss->getSpecialPrice()));
+            $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$product->getData('price')));
+          }else{
+
+            $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$product->getData('price')));
+          } 
+        }
+
+     ?>
+<?php
+  if (round($productss->getSpecialPrice()) >0) {?>
+         
+           <div class="proPrice">
+        <?php echo $currencySymbol.$SpecialPrice;?>
+        <span style="text-decoration: line-through;color: #9b9b9b;">
+         <?php echo $currencySymbol.$finalPrice;?></span>
+        </div>
+
+        <?php }else{?>
+         
+          <div class="proPrice">
+       <?php echo $currencySymbol.$finalPrice;?>
+
+        </div>
+        <?php } ?>
+
+</div>
+
+                <p id="qtyChecked_<?php echo $productId;?>" style="display: none;color: red;text-align: center;"></p>
+
+                <?php
+
+                if($product->isSalable() == 1)
+                {
+
+                 if ($product->getTypeId() == \Magento\ConfigurableProduct\Model\Product\Type\Configurable::TYPE_CODE){?>
+
+
+                    <a style="text-decoration: none" target="_blank"  href="<?php echo $product->getProductUrl();?>?wishlist=1" ><div class="moveToBag">MOVE TO BAG</div>
+                    </a>
+
+                    <?php 
+                }
+                else
+                {
+                 
+                   ?>
+
+                   <div style="cursor: pointer;" onclick="ccmovetobag(<?php echo $productId; ?>,'cart_index_index');" class="moveToBag">MOVE TO BAG</div>
+                   
+
+               <?php } }else{?>
+
+                  <div class="moveToBag">OUT OF STOCK</div>
+              <?php } ?>
+          </div>
+      </div>                      
+  </div>
+</div>
+
+<?php
+$objectManager->get('Magento\Catalog\Model\Product')->reset();
+$i++;
+}
+
+
+?>
+</section>
+</div>
+
+
+
+
+
+</div>
+
+
+<?php endif;?>
+<?php endif;?>
+
+<div class="finalPrice">
+                        <?php
+                        if($nykaaOffer){ 
+                            $offerCondition = $offer_subtotal - $discountTotal - $shippingAmount;
+                            $offerLowerLimit = $catalogHelper->CurrencyClone(2500);
+                            $offerUpperLimit = $catalogHelper->CurrencyClone(6000);
+                            $high_price_style = 'display:none';
+                            $low_price_style = 'display:none';
+                            if($offerCondition >= $offerUpperLimit){
+                                $high_price_style = 'display:block';
+                            }else if($offerCondition >= $offerLowerLimit){
+                                $low_price_style = 'display:block';
+                            }
+
+                            echo "<div id='high_price_offer' style='".$high_price_style."'><a href='javascript:void(0)' class='openpopup hpo' onclick='showOfferPopup(event, this)'>OFFER</a><span> : </span>You will receive a <span>free Nykaa Sweet Cheery Nail enamel combo</span> with this order.</div>";    
+                            echo "<div id='low_price_offer' style='".$low_price_style."'><a href='javascript:void(0)' class='openpopup lpo' onclick='showOfferPopup(event, this)'>OFFER</a><span> : </span>You will receive a <span>Nykaa Pout Perfect lip and cheek crayon</span> with this order.</div>";  
+                        }else{
+                            setcookie('high_price_offer', '', time() - 3600, "/");
+                            setcookie('low_price_offer', '', time() - 3600, "/");
+                        }
+                        ?>
+    <div class="finalPriceBlock">
+        <input type="hidden" id="cartsubtotal" value="<?php echo preg_replace('/[^\d.]/', '', $subTotal); ?>">
+        <div class="priceUnit">Subtotal</div>
+        <div class="pricevalue">
+            <?php echo $currencySymbol . '<span class="cartsubtotal">' . $subTotal . '</span>'; ?>
+        </div>
+
+        <?php
+        if (ceil($shippingAmount) > 0) { ?>
+            <div class="priceUnit">Shipping</div>
+            <div class="pricevalue">
+
+                <input type="hidden" value="<?php echo preg_replace('/[^\d.]/', '', number_format($shippingAmount, 2)); ?>" id="shippingCharges">
+                <?php
+                echo "<span>" . $currencySymbol . "</span>" . "<span id='ShipCount'>" . number_format($shippingAmount, 2) . "</span>";
+                ?>
+            </div>
+            <?php
+        } else { 
+            if($detectedCountry == 'IN'){
+            ?>
+            <div class="priceUnit">Shipping</div><div class="pricevalue"><span style="font-size: 14px;letter-spacing: 0px;"><?php echo $currencySymbol; ?>0.00</span></div>
+            <?php
+            }else{ ?>
+                <div class="priceUnit">Shipping</div><div class="pricevalue"><span style="font-size: 14px;letter-spacing: 0px;"><?php echo $currencySymbol; ?>0.00</span></div>
+        <?php    } 
+        }
+        ?>
+
+
+        <?php if (ceil($discountTotal) > 0) { ?>
+            <div class="priceUnit discountdiv">Discount</div><div class="pricevalue discountdiv"><?php echo '<span id="hiphine" style="color:#000;">-</span>' . $currencySymbol . '<span class="discountAmt">' . $discountTotal . '</span>'; ?></div>
+            <?php
+        } ?>
+    </div>
+
+    <div class="itemsPrice <?php echo $detectedCountry == 'IN' ? 'hide' : ''; ?>">
+        *An item's price and availability may change when you select your shipping destination. If you do not wish your order to be shipped to <span>India</span>, please update your <span>Shipping Destination</span><br>Please note, all prices exclude customs duties and tax.<br><br>
+    </div>
+
+    <!-- by shubhanshu to show shipping charges on cart for international -->
+    <?php
+    $shipping ='';
+    $maxprice ='';
+    $minMaxPrice =array();
+    if (isset($detectedCountry) && $detectedCountry != 'IN') { ?>
+       <?php 
+       $query = "SELECT max_price,shipping_charge FROM flat_rate_shipping_charges WHERE country_code='".$detectedCountry."' AND min_price='0'";
+       $minMaxPrice = $connection->FetchRow($query);
+
+       if (strtolower($currency) !='inr'){
+            $shipCharge = isset($minMaxPrice['shipping_charge']) ? $minMaxPrice['shipping_charge'] : 2000;
+            $max = isset($minMaxPrice['max_price']) ? $minMaxPrice['max_price'] : 15000;
+           $shipping = '(approx. '.$currencySymbol.ceil($rate*$shipCharge).')';
+           $maxprice = '(approx. '.$currencySymbol.ceil($rate*$max).')';
+       }else{
+        $max = 15000;
+        $shipCharge = 2000;
+       }
+
+       if (ceil($shippingAmount) > 0) {
+       ?>
+       <div class="cartpara" style="width: 60%;float:left;">
+        International shipping cost outside India is free for orders for <?php echo "INR".number_format($max);?> or more <?php echo $maxP = (isset($maxprice) && !empty($maxprice)) ? $maxprice : '';?>.International shipping cost is <?php echo "INR".number_format($shipCharge);?> <?php echo $ship = (isset($shipping) && !empty($shipping)) ? $shipping : '';?> for orders under <?php echo "INR".number_format($max);?>.
+    </div>
+<?php } 
+    }
+?>
+</div>
+</div> 
+<br class="spacer">             
+</div>
+
+
+<div class="minCheckout">
+    <div class="checkoutBlock">
+        <div class="section col-lg-5 col-sm-6">
+            <div class="deliveryAndPayment">Payment options can be selected later</div>
+            <div class="safeSecurePayment"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCart::images/icon-security-checked.svg'); ?>"> Safe & Secure Payments</div>
+            <div class="paymentProtect"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCart::images/icon-safe-ok.svg'); ?>"> 100% Payment Protection</div>
+        </div>
+        <div class="section col-lg-3 col-sm-6">
+
+            <?php echo $this->getLayout()->createBlock("Magento\Framework\View\Element\Template")->setTemplate("Fermion_CartRule::cart/coupon.phtml")->toHtml();?>
+        </div>
+        <div class="section proceedSection col-lg-4 col-sm-12">
+            <input type="hidden" value="<?php echo preg_replace('/[^\d.]/', '', $grandtotal); ?>" id="cartgrdtotal">
+
+            <input type="hidden" value="<?php echo preg_replace('/[^\d.]/', '', $grandtotal); ?>" id="act_cartgrdtotal">
+
+            <div class="subtotal">Total: 
+                <span><?php
+                echo $currencySymbol . '<span class="cartgrdtotal" id="grd_total">' . $grandtotal . '</span>'; ?></span></div>
+
+                <a id="proceedtcheckout" data-urlhref="<?php echo $this->getUrl('checkout', ['_secure' => true]);?>" class="proceedToCheckout" onclick="analyze()">PROCEED <span>TO CHECKOUT</span></a>
+            </div>
+            <div class="chosingToProcee">
+                <div class="first">By Chosing to Proceed you agree to Nykaa Design ?Studio’s Terms & Conditions</div>
+                <div class="secound">By Chosing to Proceed you agree to Nykaa Design ?Studio’s Terms & Conditions</div>
+            </div>
+        </div>
+
+        <?php 
+        if($styleclass != '')
+        {
+            echo '<style>'.$styleclass.'{display:none !important;}</style>';
+        }
+        ?>
+    </div>
+    <?php else:?> 
+        <h2>No Items in your cart</h2>
+        <br>
+        <h5><a href="/" style="color: #000;text-decoration: none;position: absolute; bottom: 15pt;">Click here to go homepage.</a></h5>
+    <?php endif;?>  
+</div>
+<?php
+if($nykaaOffer){ 
+    $offerCondition = $offer_subtotal - $discountTotal - $shippingAmount;
+    $high_price_style = 'display:none';
+    $low_price_style = 'display:none';
+    $offerLowerLimit = $catalogHelper->CurrencyCloneCeil(2500);
+    $offerUpperLimit = $catalogHelper->CurrencyCloneCeil(6000);
+    echo '<input type="hidden" id="offer_lower_limit" value="'.$offerLowerLimit.'">';
+    echo '<input type="hidden" id="offer_upper_limit" value="'.$offerUpperLimit.'">';
+
+    $highPricePopupStyle = 'display:none';
+    $lowPricePopupStyle = 'display:none';
+    if($offerCondition >= $offerUpperLimit){
+        $high_price_style = 'display:block';
+        setcookie('low_price_offer', '', time() - 3600, "/");
+        if(!isset($_COOKIE['high_price_offer'])) {
+             $highPricePopupStyle = 'display:block';
+            setcookie('high_price_offer', 1, time() + (86400 * 30), "/"); ?>
+            <script type="text/javascript">
+                document.querySelector(".nyCart").style.filter = 'blur(4px)';
+            </script>
+        <?php }
+    }else if($offerCondition >= $offerLowerLimit){
+        $low_price_style = 'display:block';
+        setcookie('high_price_offer', '', time() - 3600, "/");
+        if(!isset($_COOKIE['low_price_offer'])) {
+            $lowPricePopupStyle = 'display:block';
+            setcookie('low_price_offer', 1, time() + (86400 * 30), "/"); ?>
+            <script type="text/javascript">
+                document.querySelector(".nyCart").style.filter = 'blur(4px)';
+            </script>
+        <?php }
+    }else{
+        setcookie('high_price_offer', '', time() - 3600, "/");
+        setcookie('low_price_offer', '', time() - 3600, "/");    
+    }
+?>
+<div class="mainGiftWrap hpo cart" style="<?php echo $highPricePopupStyle; ?>">
+                            <div class="wrapGiftPopup hpo">
+                                <div class="popupContainer">
+                                    <div class="giftPopup">
+                                        <div class="giftpopupbox">
+                                            <div class="giftClose hpo" onclick="closeOfferPopup(this)">
+                                                <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/cancel.svg" alt="Gift Image">
+                                            </div>
+                                            <div class="innerGiftWrap">
+                                                <div class="giftHeading">Congratulations!</div>
+                                                <div class="giftContent">You will receive a free Nykaa Sweet Cheery Nail enamel combo with this order.</div>
+                                                <div class="giftImage">
+                                                    <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/nailpolish.jpg" alt="Gift Image">
+                                                </div>
+                                                <div class="offerDetail"> 
+						Orders over <?php echo $currency .' '. $offerUpperLimit; ?> will receive Nykaa Sweet Cheery Nail enamel combo. Orders over <?php echo $currency .' '. $offerLowerLimit; ?> will receive Nykaa Pout Perfect lip and cheek crayon 
+                                                </div>
+                                            </div>                                                                      
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mainGiftWrap lpo cart" style="<?php echo $lowPricePopupStyle; ?>">
+                            <div class="wrapGiftPopup lpo">
+                                <div class="popupContainer">
+                                    <div class="giftPopup">
+                                        <div class="giftpopupbox">
+                                            <div class="giftClose lpo" onclick="closeOfferPopup(this)">
+                                                <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/cancel.svg" alt="Gift Image">
+                                            </div>
+                                            <div class="innerGiftWrap">
+                                                <div class="giftHeading">Congratulations!</div>
+                                                <div class="giftContent">You will receive a free Nykaa Pout Perfect lip and cheek crayon with this order.</div>
+                                                <div class="giftImage">
+                                                    <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/lipcrayon.jpg" alt="Gift Image">
+                                                </div>
+                                                <div class="offerDetail"> 
+						Orders over <?php echo $currency .' '. $offerUpperLimit; ?> will receive Nykaa Sweet Cheery Nail enamel combo. Orders over <?php echo $currency .' '. $offerLowerLimit; ?> will receive Nykaa Pout Perfect lip and cheek crayon
+                                                </div>
+                                            </div>                                                                      
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                <?php  } ?>
+
+<div class="notInternational" style="display: none;">
+    <div class="notInternationalChild" data-total="<?php echo count($items); ?>" data-remove="<?php echo count($notInternationalIds); ?>">
+        <input type="hidden" id="removeProdIds" value='<?php echo json_encode($notInternationalIds); ?>'>
+        <?php echo $notInternationalHtml; ?>
+    </div>
+</div>

@@ -1,0 +1,256 @@
+<?php
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$resource = $objectManager->get('Magento\Framework\App\ResourceConnection');
+$connection = $resource->getConnection();
+$storeManager = $objectManager->get('\Magento\Store\Model\StoreManagerInterface');
+
+$currency = $storeManager->getStore()->getCurrentCurrencyCode();
+
+$currency = $objectManager->create('Magento\Directory\Model\CurrencyFactory')->create()->load($currency);
+$currencySymbol = $currency->getCurrencySymbol();
+$helperImport   = $objectManager->get('\Magento\Catalog\Helper\Image');
+/**
+ * Copyright © 2013-2017 Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
+ */
+// @codingStandardsIgnoreFile
+?>
+<!-- main logical html and code -->
+<?php $_orders = $block->getOrders(); ?>
+<?php echo $block->getChildHtml('info');?>
+<?php if ($_orders && count($_orders)): ?>
+   <?php foreach ($_orders as $_order): ?>
+    <?php $orderedproducts = $objectManager->create('Magento\Sales\Model\Order')->load($_order->getId());
+    $orderItems = $orderedproducts->getAllItems();
+
+    $orderId = $_order->getId();
+    $order_increm_id = $_order->getRealOrderId();
+    ?>
+    <div class="userDetails">
+        <div class="orderDetail">
+            <div class="orderNumber">ORDER <span>#<?php /* @escapeNotVerified */ echo $order_increm_id;?></span> </div>
+            <div class="orderDate">Placed: <?php /* @escapeNotVerified */ 
+            $timestamp = strtotime($_order->getCreatedAt());
+            echo $new_date_format = date('D,', $timestamp);?><span><?php echo $new_date_format = date('d/m/y', $timestamp);?></span>  <?php $extra = $block->getChildBlock('extra.container'); ?>
+            <?php if ($extra): ?>
+                <?php $extra->setOrder($_order); ?>
+                <?php /* @noEscape */ echo $extra->getChildHtml() ?>
+            <?php endif; ?></div>
+        </div>
+        <div class="shipDetail">
+            <div class="shipTo">Ship To:</div>
+            <div class="shipAdd"><?php echo $_order->getShippingAddress()->getName();?></div>
+        </div>
+        <div class="grandDetail">
+            <div class="grandTotal">Grand Total: </div>
+            <div class="grandValue"><span><?php /* @escapeNotVerified */ echo $_order->formatPrice($_order->getGrandTotal());?></span></div>
+        </div>
+    </div>
+
+    <div class="checkoutDetails">
+        <div class="shipingTo">
+            <div class="title">SHIPMENT <span>1</span> of <span>2</span></div>
+        </div>
+        <div class="deliverDetail">
+            <div class="title"><?php /* @escapeNotVerified */ echo $_order->getStatusLabel() ?></div>
+            <div class="deliverDate">Fri <span>11</span> Nov</div>
+        </div>
+        <div class="payDetail">
+            <div class="title">Paid In Cash</div>
+            <div class="payedValue">$<span>1234</span></div>
+        </div>
+        <div class="courierDetail">
+            <div class="title">Courier Name : WOW Express </div>
+            <div class="awbNumber">AWB <span>#A12345</span></div>
+        </div>
+    </div> 
+    <?php  foreach ($orderItems as $item) {
+        $options = $item->getProductOptions(); 
+        $optionColor='';
+        if (isset($options['attributes_info'][0]['value'])) {
+         $optionValue = $options['attributes_info'][0]['value'];
+     }
+
+     if (isset($options['attributes_info'][1]['value'])) {
+         $optionColor = $options['attributes_info'][1]['value'];
+     }
+     $itemId = $item->getId();
+     $product = $objectManager->get('Magento\Catalog\Model\Product')->load(268);
+
+            
+            // Order Status ----
+
+                $selorder_status = "SELECT * FROM order_status WHERE order_increm_id=$order_increm_id AND order_item_id=$itemId";
+                $sos_result = $connection->fetchAll($selorder_status);
+                    $order_status = '';
+                      if(!empty($sos_result))
+                      {
+
+                            $order_status = $sos_result[0]['order_status'];
+                      }  
+            // end
+
+
+     ?>
+    
+
+
+
+
+        <div class="productSection">
+            <div class="imgMask"><a href="<?php echo $product->getProductUrl();?>?root=my_order"><img src="<?php echo $this->getUrl().'pub/media/catalog/product'.$product->getThumbnail(); ?>"></a></div>
+            <div class="productDetail">
+                <div class="proTitle"><a href="<?php echo $product->getProductUrl();?>?root=my_order"><?php 
+
+                //echo $product->getName(); 
+               echo preg_replace('~'.$brand.'~i','',$product->getName(),1);
+
+                ?>
+
+                </a></div>
+                <div class="proDetails"><?php $desc = $product->getDescription(); 
+                    echo implode(' ', array_slice(explode(' ', $desc), 0, 10));
+                 ?></div>
+
+                <?php if($product->getSpecialPrice()) { ?>
+                <div class="proPrice"><?php echo  $currencySymbol. number_format($product->getSpecialPrice(),2); ?><span><?php echo  $currencySymbol. number_format($product->getPrice(),2); ?></span></div>
+                <?php }else{ ?>
+                <div class="proPrice"><?php echo $currencySymbol. number_format($product->getFinalPrice(),2); ?></div>
+                <?php } ?>
+                <div class="atributes">
+                    <div class="atributeSection"> <?php echo $optionValue; ?></div>
+                    <div class="atributeSection"><?php echo $optionColor; ?></div>
+                    <div class="atributeSection">Qty: <?php echo number_format($item->getQtyOrdered(),0); ?></div>
+                </div>
+                <input type="hidden" id="orduniq<?php echo $orderId;  ?>_incrementid" value="<?php echo $_order->getRealOrderId(); ?>">
+                <input type="hidden" id="orduniq<?php echo $orderId;  ?>_itemid" value="<?php echo $item->getId(); ?>">
+                <input type="hidden" id="orduniq<?php echo $orderId;  ?>_itemqty" value="<?php echo number_format($item->getQtyOrdered(),0); ?>">
+            </div>
+            
+            <?php if($order_status == 'delivered' && $order_status == 'shipped'){ ?>
+            <a href="<?php /* @escapeNotVerified */ echo $block->getViewUrl($_order) ?>" class="tracking"><img src="<?php echo $this->getViewFileUrl('images/tracking-icon.svg'); ?>"> Tracking Link</a>
+            <?php } if($order_status == 'delivered' && $order_status != 'return_initiated'){ ?>
+                    <a href="javascript:void(0)" class="returnItems" data-orduniq="orduniq<?php echo $orderId;  ?>">Return Items</a>
+            <?php } ?>
+        </div>
+
+            <?php
+
+
+             
+
+                       
+
+                            // print_r($sos_result);die();
+                            
+
+                            if($order_status == 'shipped')
+                            {
+
+            ?>
+
+                        <div class="checkoutDetails">
+                            <div class="shipingTo">
+                                <div class="title">SHIPMENT <span>1</span> of <span>2</span></div>
+                                <div class="awbNumber">AWB <span>#<?php /* @escapeNotVerified */ echo $_order->getRealOrderId() ?></span></div>
+                            </div>
+                            <div class="deliverDetail">
+                                <div class="title">SHIPPED</div>
+                                <div class="deliverDate">Est. Delivery: Fri <span>11</span> Nov - Mon <span>14</span></div>
+                            </div>
+                            <div class="payDetail">
+                                <div class="title">Paid In Cash</div>
+                                <div class="payedValue"><span><?php /* @escapeNotVerified */ echo $_order->formatPrice($_order->getGrandTotal()) ?></span></div>
+                            </div>
+                            <div class="courierDetail">
+                                <div class="title">Courier Name : WOW Express </div>
+                                <div class="awbNumber">AWB <span>#<?php /* @escapeNotVerified */ echo $_order->getRealOrderId() ?></span></div>
+                            </div>
+                        </div>
+
+                <?php 
+                          }
+                          else
+                          {
+
+                         echo '<div class="checkoutDetails">
+                                    <div class="deliverDetail">
+                                        <div class="title">'.$order_status.'</span></div>
+                                    </div>
+                                </div>';
+
+                          }
+
+                 ?>
+
+    <?php }?>
+    <div class="orderReport">
+                        <div class="savedDetails">You Saved <span>$1234</span> in this order<br> Reward Points Earned : 0 (Order placed as Guest)</div>
+                        <?php
+                            if ($_order->getInvoiceCollection()->count()) 
+                            {
+                        ?>
+                        <a target="_blank" href="/sales/order/invoice/order_id/<?php echo $orderId; ?>" class="downloadInvoice"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Magento_Theme/images/downlaod.svg"> View Invoice</a>
+                        <?php } ?>
+                        <a href="#" class="ordercancel"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Magento_Theme/images/ordercancel.svg"> CANCEL Order</a>
+                    </div>
+<?php endforeach; ?>
+
+<?php else: ?>
+    <div class="userDetails">
+        <div class="orderDetail">
+            <div class="orderDate"><?php /* @escapeNotVerified */ echo __('You have placed no orders.'); ?></div>
+        </div>
+    </div>
+<?php endif; ?>
+
+
+
+
+
+
+<!--Return order popup html -->
+    <div class="sizeChartOver"></div>
+    <div class="sizeChart">
+        <div class="headerChart"> <img src="images/logo.png"> <div class="close"></div></div>
+
+<?php 
+
+$helper   = $objectManager->get('\Fermion\Order\Helper\Data');
+$reasonarray = $helper->getreasonarray();
+
+?>        
+<div class="col-md-12">
+  <h2>Return Item</h2>
+  <form id="returnorder-form">
+    <input type="hidden" id="rtrn_order_item_id">
+    <input type="hidden" id="rtrn_order_id">
+    <input type="hidden" id="rtrn_order_item_qty">
+  <div class="form-group">
+    <label for="reason">Reason</label>
+    <select class="form-control" id="reason">
+        <option value="">Select Reason</option>
+        <?php
+            foreach ($reasonarray as $row) {
+               echo '<option value="'.$row.'">'.$row.'</option>';
+            }
+
+        ?>
+    </select>
+  </div>
+    <div class="form-group">
+    <label for="exampleInputFile">File input</label>
+    <input type="file" multiple="multiple" class="form-control-file" id="exampleInputFile" aria-describedby="fileHelp">
+    <small id="fileHelp" class="form-text text-muted">This is some placeholder block-level help text for the above input. It's a bit lighter and easily wraps to a new line.</small>
+  </div>
+    <div class="form-group">
+      <label for="comment">Comment:</label>
+      <textarea class="form-control" rows="5" id="comment"></textarea>
+    </div>
+    <div class="form_msg">
+    </div>
+    <button type="button" id="submit_ord_return" class="btn btn-default">Submit</button>
+  </form>
+</div>
+       
+    </div>

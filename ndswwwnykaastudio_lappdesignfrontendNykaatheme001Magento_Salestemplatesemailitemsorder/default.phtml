@@ -1,0 +1,89 @@
+<?php
+/**
+ * Copyright © 2013-2017 Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
+ */
+
+// @codingStandardsIgnoreFile
+
+/** @var $block \Magento\Sales\Block\Order\Email\Items\DefaultItems */
+
+/** @var $_item \Magento\Sales\Model\Order\Item */
+$_item = $block->getItem();
+$_order = $_item->getOrder();
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$storeManager = $objectManager->get('Magento\Store\Model\StoreManagerInterface');
+$product = $objectManager->create('Magento\Catalog\Model\Product')->load($_item->getProduct()->getId());
+$optionText ='';
+$attr = $_product->getResource()->getAttribute('brand');
+$brandId = $_product->getData('brand');
+if ($attr->usesSource()) {
+ $optionText = $attr->getSource()->getOptionText($brandId);
+ }echo strtoupper($optionText);   
+ preg_replace('~'.$brand.'~i','',$product,1); 
+
+
+
+$imagewidth=200;
+$imageheight=200;
+$imageHelper  = $objectManager->get('\Magento\Catalog\Helper\Image');
+$image_url = $imageHelper->init($product, 'product_page_image_small')->setImageFile($product->getFile())->resize($imagewidth, $imageheight)->getUrl();
+$currentStore = $storeManager->getStore();
+$mediaUrl = $currentStore->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_MEDIA);
+$product = $objectManager->create('Magento\Catalog\Model\Product')->load($_item->getProductId());
+if ($product->getImage()) {
+    $product_image = $mediaUrl . 'catalog/product' . $product->getImage();
+} else {
+    $product_image = $storeManager->getStore()->getBaseUrl() . 'pub/media/fermion/no_image.jpg';
+}
+?>
+
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" align="center" style="border-bottom: solid 1px #CCC;">
+    <tr>
+        <td width="20%">
+            <img src="<?php echo  $product_image; ?>" style="width: 100%; border:0; float: left; margin: 13px 0;">
+        </td>
+        <td>
+            <h3 style="font-family: 'Georgia',serif; font-size: 0.875em; float: left; width: 100%; margin:15px 0 0; padding: 0;"><?= $block->escapeHtml($_item->getName()) ?></h3>
+            <!-- <p style="font-family: 'Georgia',serif; font-size: 0.875em; float: left; width: 100%;">Leather Laptop Bag</p> -->
+            <span style="font-family: 'Georgia',serif; font-size: 0.875em; float: left; width: 100%; font-weight: bold;">Qty:<?= /* @escapeNotVerified */  $_item->getQtyOrdered() * 1 ?></span>
+        </td>
+        <td>
+            <span style="font-family: 'Georgia',serif; text-align: right; font-size: 0.875em; float: right; width: 100%; margin: 15px 0 0;">
+
+                <?php if ($block->getItemOptions()): ?>
+                        <?php $attribute = array();?>
+                    <?php foreach ($block->getItemOptions() as $option): ?>
+                            <?php 
+
+                             if(nl2br($option['value']) !== ''){
+                                    $attribute[] = nl2br($option['value']);
+                                }
+                            ?>
+                       
+                    <?php endforeach; ?>
+                  <?php echo implode("|",$attribute); ?>
+                <?php endif; ?>
+            
+
+
+        </span>
+            <p style="font-family: 'Georgia',serif; text-align: right; font-size: 0.875em; float: right; width: 100%; margin: 0;">
+                &nbsp;
+            </p>
+            <p style="font-family: 'Georgia',serif; text-align: right; font-size: 0.875em; float: right; width: 100%; margin: 10px 0 0;">
+                <!-- <span style="font-family: verdana; padding: 2px 5px; font-size: 0.750em; border:solid 1px #000; border-radius: 5px; margin: 0 10px 0 0;"></span>
+                <span style="font-family: verdana; padding: 2px 5px; color: #cccccc; font-size: 0.875em; margin: 0 10px 0 0;"></span> -->
+                <span style="font-family: verdana; padding: 2px 5px; font-size: 0.875em; margin: 0;"><?= /* @escapeNotVerified */  $block->getItemPrice($_item); ?></span>
+            </p>
+        </td>
+    </tr>       
+</table>
+
+
+
+
+
+        
+

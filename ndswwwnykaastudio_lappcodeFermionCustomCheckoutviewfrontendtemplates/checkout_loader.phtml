@@ -1,0 +1,74 @@
+<div class="nyloader" style=" display: none; ">
+    <div class="blobs">
+        <div class="blob-center"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/N.svg" style="height: 20px; width: 20px; margin:auto; margin-bottom: 5px;"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+    </div>
+</div>
+<?php
+	$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+	$catalogHelper = $objectManager->create('\Fermion\Catalog\Helper\Data');
+	// $offerLowerLimit = $catalogHelper->CurrencyCloneCeil(2500);
+	$offerUpperLimit = $catalogHelper->CurrencyCloneCeil(3500);
+	// echo '<input type="hidden" id="offer_lower_limit" value="'.$offerLowerLimit.'">';
+	echo '<input type="hidden" id="offer_upper_limit" value="'.$offerUpperLimit.'">';
+
+	$storeManager = $objectManager->get('\Magento\Store\Model\StoreManagerInterface');
+	$store = $storeManager->getStore();
+	$currency_code =  $store->getCurrentCurrencyCode();
+
+?>
+<div class="mainGiftWrap hpo checkout" style='display:none;'>
+<div class="wrapGiftPopup hpo">
+    <div class="popupContainer">
+        <div class="giftPopup">
+            <div class="giftpopupbox">
+                <div class="giftClose hpo" onclick="closeOfferPopup1(this)">
+                    <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/cancel.svg" alt="Gift Image">
+                </div>
+                <div class="innerGiftWrap">
+                    <div class="giftHeading">Congratulations!</div>
+                    <div class="giftContent">You will receive free 2 Nykaa Mirror Chrome Nail Lacquer with this order.</div>
+                    <div class="giftImage">
+                        <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/nail_lacquer.jpg" alt="Gift Image">
+                    </div>
+                    <div class="offerDetail"> 
+			Orders over <?php echo $currency_code .' '. $offerUpperLimit; ?> will receive 2 Nykaa Mirror Chrome Nail Lacquer.
+                    </div>
+                    <!-- Orders over <?php //echo $currency_code .' '. $offerLowerLimit; ?> will receive Nykaa Pout Perfect lip and cheek crayon -->
+                </div>                                                                      
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<div class="mainGiftWrap lpo checkout" style='display:none;'>
+<div class="wrapGiftPopup lpo">
+    <div class="popupContainer">
+        <div class="giftPopup">
+            <div class="giftpopupbox">
+                <div class="giftClose lpo" onclick="closeOfferPopup1(this)">
+                    <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/cancel.svg" alt="Gift Image">
+                </div>
+                <div class="innerGiftWrap">
+                    <div class="giftHeading">Congratulations!</div>
+                    <div class="giftContent">You will receive a free Nykaa Pout Perfect lip and cheek crayon with this order.</div>
+                    <div class="giftImage">
+                        <img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCart/images/lipcrayon.jpg" alt="Gift Image">
+                    </div>
+                    <div class="offerDetail"> 
+			Orders over <?php echo $currency_code .' '. $offerUpperLimit; ?> will receive Nykaa Sweet Cheery Nail enamel combo.
+                    </div>
+                    <!-- Orders over <?php //echo $currency_code .' '. $offerLowerLimit; ?> will receive Nykaa Pout Perfect lip and cheek crayon -->
+                </div>                                                                      
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+

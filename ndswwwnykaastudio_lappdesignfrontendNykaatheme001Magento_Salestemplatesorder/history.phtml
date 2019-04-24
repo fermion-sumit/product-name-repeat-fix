@@ -1,0 +1,394 @@
+ 
+<?php
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$resource = $objectManager->get('Magento\Framework\App\ResourceConnection');
+$connection = $resource->getConnection();
+$storeManager = $objectManager->get('\Magento\Store\Model\StoreManagerInterface');
+
+$currency = $storeManager->getStore()->getCurrentCurrencyCode();
+
+$currency = $objectManager->create('Magento\Directory\Model\CurrencyFactory')->create()->load($currency);
+$currencySymbol = $currency->getCurrencySymbol();
+$helperImport   = $objectManager->get('\Magento\Catalog\Helper\Image');
+$_helper = $this->helper('Magento\Catalog\Helper\Output');
+$countryFactory = $objectManager->get('\Magento\Directory\Model\CountryFactory');
+  $priceHelper = $objectManager->create('Magento\Framework\Pricing\Helper\Data'); // Instance of Pricing Helper
+  $store= $objectManager->create('Magento\Store\Model\StoreManagerInterface');
+$target = '';
+if(isset($_GET['eq']) && $_GET['eq']=='generic'){
+$target="target='_blank'";
+}
+/**
+ * Copyright © 2013-2017 Magento, Inc. All rights reserved.
+ * See COPYING.txt for license details.
+ */
+// @codingStandardsIgnoreFile
+
+?>
+<!-- main logical html and code -->
+<?php $_orders = $block->getOrders(); ?>
+<?php echo $block->getChildHtml('info');?>
+<?php if ($_orders && count($_orders)): ?>
+ <?php foreach ($_orders as $_order): ?>
+
+  <?php
+   $orderedproducts = $objectManager->create('Magento\Sales\Model\Order')->load($_order->getId());
+  $orderItems = $orderedproducts->getAllVisibleItems();
+
+  $orderId = $_order->getId();
+
+  $order_increm_id = $_order->getRealOrderId();
+
+  $getCurrency = "SELECT order_currency_code FROM sales_order WHERE increment_id='$order_increm_id'";
+  $ordered = $connection->fetchRow($getCurrency);
+  $orderedcurrency=$ordered['order_currency_code'];
+
+  $currencyRate = $store->getStore()->getBaseCurrency()->getRate($orderedcurrency);
+  $sym = $objectManager->create('Magento\Directory\Model\CurrencyFactory')->create()->load($orderedcurrency);
+  $currencySym = $sym->getCurrencySymbol();
+
+
+  $count = $_order->getTotalItemCount();
+
+  $payment = $_order->getPayment();
+  $methodCode = $payment->getMethodInstance()->getCode();
+
+  $txnId = '';
+  if($methodCode == 'payu')
+  {
+    $select = "SELECT txid FROM payu_transaction WHERE order_id='$orderId'";
+    $resultpayu = $connection->fetchAll($select);
+
+
+    if(!empty($resultpayu))
+    {
+      $txnId = $resultpayu[0]['txid'];
+    }
+  }
+  ?>
+  <div class="userDetails">
+    <div class="orderDetail">
+      <div class="orderNumber">ORDER <span>#<?php /* @escapeNotVerified */ echo $order_increm_id;?>
+      <?php
+      if($txnId != '')
+      {
+        echo '<small>[TxnId:'.$txnId.']</small>';
+      }
+      ?>
+
+    </span> </div>
+    <div class="orderDate">Placed: <?php /* @escapeNotVerified */ 
+    $timestamp = strtotime($_order->getCreatedAt());
+    echo $new_date_format = date('D, ', $timestamp);?><span><?php echo $new_date_format = date('d/m/y', $timestamp);?></span>  <?php $extra = $block->getChildBlock('extra.container'); ?>
+    <?php if ($extra): ?>
+      <?php $extra->setOrder($_order); ?>
+      <?php /* @noEscape */ echo $extra->getChildHtml() ?>
+      <?php endif; ?></div>
+    </div>
+    <div class="shipDetail">
+
+     <?php
+
+
+     $shipping_data = $_order->getShippingAddress()->getData();
+     
+
+     $address = $shipping_data['street'];
+     $addrs_ = '';
+     if(!empty($address))
+     {
+      $streetadd = $address;
+      $addrs_ = substr($streetadd,0,8)."...";
+      $country = $countryFactory->create()->loadByCode($shipping_data['country_id']);
+      echo '<div class="shipTo">Ship To:'.$addrs_.'</div>';
+      echo '<div class="drop shipdrop" data-ordid="'.$orderId.'"></div>';
+      echo '<div class="shipAdd shipAddblock_'.$orderId.'">'.$shipping_data['street'].'-'.$shipping_data['postcode'].','.$shipping_data['city'].','.$country->getName().'</div>';
+    }
+
+    ?>
+
+  </div>
+
+<div class="total_wrap">
+      <div class="grandDetail">
+        <div class="grandTotal">Grand Total </div>
+        <!-- changed by shubhanshu -->
+        <div class="grandValue"><span><?php echo $currencySym.number_format($_order->getGrandTotal(),2); ?>
+      </span></div>
+    </div>
+
+    <?php if (abs($_order->getDiscountAmount()) > 0){ ?>
+       <div class="grandDetail">
+        <div class="grandTotal">Discount </div>
+        <!-- changed by shubhanshu -->
+        <div class="grandValue"><span><?php echo "-".$currencySym.(number_format(abs($_order->getDiscountAmount()),2))  ?>
+      </span></div>
+    </div>
+    <?php } ?>
+
+
+    <?php if ($_order->getShippingAmount() > '0'){ ?>
+      <div class="grandDetail">
+        <div class="grandTotal">Shipping </div>
+        <!-- changed by shubhanshu -->
+        <div class="grandValue"><span><?php echo $currencySym.number_format($_order->getShippingAmount(),2);  ?>
+      </span></div>
+    </div>
+    <?php } ?>
+</div>
+
+</div>
+
+
+<?php  
+$i = 1;
+foreach ($orderItems as $item) {
+
+
+
+  $options = $item->getProductOptions(); 
+  $optionColor='';
+  $optionValue = '';
+  if (isset($options['attributes_info'][0]['value'])) {
+   $optionValue = $options['attributes_info'][0]['value'];
+ }
+
+ if (isset($options['attributes_info'][1]['value'])) {
+   $optionColor = $options['attributes_info'][1]['value'];
+ }
+ $itemId = $item->getId();
+ $pid = $item->getProductId();
+
+ $product = $objectManager->get('Magento\Catalog\Api\ProductRepositoryInterface')->getById($pid);
+
+
+            // Order Status ----
+
+ $selorder_status = "SELECT * FROM nyk_order_status WHERE order_increm_id=$order_increm_id AND order_item_id=$itemId";
+ $sos_result = $connection->fetchAll($selorder_status);
+ $order_status = '';
+ if(!empty($sos_result))
+ {
+
+  $order_status = $sos_result[0]['order_status'];
+}  
+            // end
+
+?>
+
+<?php
+$status = '';
+
+$backordered = (double)$item->getQtyBackordered();
+/*if (!$backordered && $item->getHasChildren()) {
+  $backordered = (double)$item->_getQtyChildrenBackordered();
+}*/
+$canceled = (double)$item->getQtyCanceled();
+$invoiced = (double)$item->getQtyInvoiced();
+$ordered = (double)$item->getQtyOrdered();
+$refunded = (double)$item->getQtyRefunded();
+$shipped = (double)$item->getQtyShipped();
+$delivered = (double)$item->getQtyDelivered();
+$alternate_placed = (double)$item->getQtyAlternatePlaced();
+
+$actuallyOrdered = $ordered - $canceled - $refunded;
+
+if (!$invoiced && !$shipped && !$refunded && !$canceled && !$backordered && !$delivered && !$alternate_placed) {
+  $status = 'PENDING';
+}else if ($shipped && $invoiced && $actuallyOrdered == $shipped) {
+  $status = 'SHIPPED';
+}
+
+else if ($invoiced && !$shipped && $actuallyOrdered == $invoiced) {
+  $status = 'INVOICED';
+}
+
+else if ($backordered && $actuallyOrdered == $backordered) {
+  $status = 'BACKORDERED';
+}
+
+else if ($refunded && $ordered == $refunded) {
+  $status = 'REFUNDED';
+}
+
+else if ($canceled && $ordered == $canceled) {
+  $status = 'CANCELED';
+}
+
+else if ($alternate_placed && $actuallyOrdered == $alternate_placed) {
+  $status = 'ALTERNATE_PLACED';
+}
+
+else if ($delivered && $actuallyOrdered == $delivered) {
+  $status = 'DELIVERED';
+}
+
+else if (max($shipped, $invoiced) < $actuallyOrdered) {
+  $status = 'PARTIAL';
+}
+else{
+  $status = 'MIXED';
+}
+
+?>
+
+
+<div class="checkoutDetails">
+  <div class="shipingTo">
+    <div class="title">SHIPMENT <span><?php echo $i; ?></span> of <span><?php echo $count; ?></span></div>
+  </div>
+  <div class="deliverDetail">
+    <!--<div class="title"><?php /* @escapeNotVerified */ //echo $_order->getStatusLabel() ?></div>-->
+    <div class="title"><?php /* @escapeNotVerified */ echo $status; ?></div>
+    <!-- <div class="deliverDate">Fri <span>11</span> Nov</div> -->
+  </div>
+      <!--   <div class="payDetail">
+            <div class="title">Paid In Cash</div>
+            <div class="payedValue">$<span>1234</span></div>
+        </div> 
+        <div class="courierDetail">
+            <div class="title">Courier Name : WOW Express </div>
+            <div class="awbNumber">AWB <span>#A12345</span></div>
+          </div>-->
+        </div>
+
+
+        <div class="productSection">
+          <div class="imgMask"><a href="<?php echo $product->getProductUrl();?>?root=my_order" <?php echo $target;?>><img src="<?php echo $this->getUrl().'pub/media/catalog/product'.$product->getThumbnail(); ?>"  ></a></div>
+          <div class="productDetail">
+            <div class="proTitle">
+              <a href="<?php echo $product->getProductUrl();?>?root=my_order" <?php echo $target; ?> >
+                <?php 
+                $optionText ='';
+                $attr = $product->getResource()->getAttribute('brand');
+                if ($attr->usesSource()) {
+                 $optionText = $attr->getSource()->getOptionText($product->getData('brand'));
+               }
+               echo strtoupper($optionText);  
+               ?>
+
+             </a>
+           </div>
+           <div class="proDetails">
+            <?php
+            /* @escapeNotVerified */ 
+            $prodName=preg_replace('~'.$optionText.'~i','',$product->getName(),1);
+            echo ucwords($prodName);
+            
+            //echo ucwords($_helper->productAttribute($product, str_replace($optionText,'',$product->getName()), 'name')); ?>
+
+          </div>
+          <!--  changed by shuhbanshu 27june 2018-->
+
+
+          <div class="proPrice"><?php echo $currencySym.number_format($item->getPrice(),2);?></div>
+
+      <div class="atributes">
+       <?php
+       if($optionValue != '')
+       {
+        echo '<div class="atributeSection">Size : '.$optionValue.'</div>';
+      }
+
+      if($optionColor != '')
+      {
+        echo '<div class="atributeSection">'.$optionColor.'</div>';
+      }
+
+      ?>
+
+      <div class="atributeSection">Qty: <?php echo number_format($item->getQtyOrdered(),0); ?></div>
+    </div>
+    <input type="hidden" id="orduniq<?php echo $orderId;  ?>_incrementid" value="<?php echo $_order->getRealOrderId(); ?>">
+    <input type="hidden" id="orduniq<?php echo $orderId;  ?>_itemid" value="<?php echo $item->getId(); ?>">
+    <input type="hidden" id="orduniq<?php echo $orderId;  ?>_itemqty" value="<?php echo number_format($item->getQtyOrdered(),0); ?>">
+  </div>
+
+  <?php if($order_status == 'delivered' && $order_status == 'shipped'){ ?>
+    <a href="<?php /* @escapeNotVerified */ echo $block->getViewUrl($_order) ?>" class="tracking"><img src="<?php echo $this->getViewFileUrl('images/tracking-icon.svg'); ?>"> Tracking Link</a>
+  <?php } if($order_status == 'delivered' && $order_status != 'return_initiated'){ ?>
+    <a href="/contact_us" class="returnItems123" data-orduniq="orduniq<?php echo $orderId;  ?>">Return Items</a>
+  <?php } ?>
+</div>
+
+
+
+<?php $objectManager->get('Magento\Catalog\Model\Product')->reset(); $i++; }?>
+<?php
+if($_order->isCanceled() != 1)
+{ 
+  ?>
+  <div class="orderReport">
+    <!-- <div class="savedDetails">You Saved <span>$1234</span> in this order<br> Reward Points Earned : 0 (Order placed as Guest)</div> -->
+    <?php
+    if ($_order->getInvoiceCollection()->count()) 
+    {
+      ?>
+      <!--  <a target="_blank" href="/sales/order/invoice/order_id/<?php echo $orderId; ?>" class="downloadInvoice"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Magento_Theme/images/downlaod.svg"> View Invoice</a> -->
+    <?php } ?>
+
+    <a href="/contact_us" class="ordercancel"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Magento_Theme/images/ordercancel.svg"> Cancel Order</a>
+
+  </div>
+<?php } ?>
+<div class="orddivider"></div>
+<?php endforeach; ?>
+
+<?php else: ?>
+  <div class="userDetails">
+    <div class="orderDetail">
+      <div class="orderDate"><?php /* @escapeNotVerified */ echo __('You have placed no orders.'); ?></div>
+    </div>
+  </div>
+<?php endif; ?>
+
+
+
+
+
+
+<!--Return order popup html -->
+<div class="sizeChartOver"></div>
+<div class="sizeChart">
+  <div class="headerChart"> <img src="images/logo.png"> <div class="close"></div></div>
+
+  <?php 
+
+  $helper   = $objectManager->get('\Fermion\Order\Helper\Data');
+  $reasonarray = $helper->getreasonarray();
+
+  ?>        
+  <div class="col-md-12">
+    <h2>Return Item</h2>
+    <form id="returnorder-form">
+      <input type="hidden" id="rtrn_order_item_id">
+      <input type="hidden" id="rtrn_order_id">
+      <input type="hidden" id="rtrn_order_item_qty">
+      <div class="form-group">
+        <label for="reason">Reason</label>
+        <select class="form-control" id="reason">
+          <option value="">Select Reason</option>
+          <?php
+          foreach ($reasonarray as $row) {
+           echo '<option value="'.$row.'">'.$row.'</option>';
+         }
+
+         ?>
+       </select>
+     </div>
+     <div class="form-group">
+      <label for="exampleInputFile">File input</label>
+      <input type="file" multiple="multiple" class="form-control-file" id="exampleInputFile" aria-describedby="fileHelp">
+      <small id="fileHelp" class="form-text text-muted">This is some placeholder block-level help text for the above input. It's a bit lighter and easily wraps to a new line.</small>
+    </div>
+    <div class="form-group">
+      <label for="comment">Comment:</label>
+      <textarea class="form-control" rows="5" id="comment"></textarea>
+    </div>
+    <div class="form_msg">
+    </div>
+    <button type="button" id="submit_ord_return" class="btn btn-default">Submit</button>
+  </form>
+</div>
+
+</div>

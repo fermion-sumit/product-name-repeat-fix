@@ -1,0 +1,1651 @@
+<?php
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$resource = $objectManager->get('Magento\Framework\App\ResourceConnection');
+$connection= $resource->getConnection();
+
+//Objects
+$cart = $objectManager->create('\Magento\Checkout\Model\Session'); 
+$catalogHelper = $objectManager->create('\Fermion\Catalog\Helper\Data');
+$scopeConfig = $objectManager->create('\Magento\Framework\App\Config\ScopeConfigInterface');
+$allowedCountryModel = $objectManager->get('\Magento\Directory\Model\AllowedCountries');
+$customerSession = $objectManager->get('Magento\Customer\Model\Session');
+$quote = $cart->getQuote();
+$productModel = $objectManager->create('Magento\Catalog\Model\Product');
+$storeManager = $objectManager->get('Magento\Store\Model\StoreManagerInterface');
+$currentCurrencyCode = $storeManager->getStore()->getCurrentCurrencyCode();
+$currencyFactory = $objectManager->create('Magento\Directory\Model\CurrencyFactory')->create()->load($currentCurrencyCode);
+$currencySymbol = $currencyFactory->getCurrencySymbol();
+$productRepository = $objectManager->get('\Magento\Catalog\Model\ProductRepository');
+$imageHelper  = $objectManager->get('\Magento\Catalog\Helper\Image');
+
+
+//data
+$store = $storeManager->getStore();
+$rate = $store->getCurrentCurrencyRate();
+
+$detectedCountry = isset($_COOKIE['countryName']) ? $_COOKIE['countryName'] : 'IN';
+$allowedCountries = $allowedCountryModel->getAllowedCountries();
+$country_options = '';
+
+$stateQuery = "SELECT region_id,code,default_name FROM directory_country_region WHERE country_id='IN'";
+$stateResult =$connection->fetchAll($stateQuery);
+$stateHtml = '';
+
+
+$IconfigPath = 'carriers/flatrate/international_shipping_days';
+$international_shipping_days =  $scopeConfig->getValue(
+  $IconfigPath,
+  \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+);
+
+$customerEmail = $customerSession->getCustomer()->getEmail();
+$customerId = $customerSession->getCustomer()->getId();
+
+$couponcode = $cart->getQuote()->getData('coupon_code');
+$discountTotal = 0;
+if($couponcode){
+	foreach ($quote->getAllItems() as $item){
+	    $discountTotal += $item->getDiscountAmount();
+	}
+	$discountTotal = preg_replace('~\.0+$~','',$discountTotal);
+}
+$shippingAmount = $quote->getShippingAddress()->getShippingAmount();
+$quoteAddressId = $quote->getShippingAddress()->getAddressId();
+$shippngAddressData = $quote->getShippingAddress()->getData();
+
+
+$quoteId = $quote->getId();
+$totalQuantity = (int) $quote->getItemsQty(); //Current Cart Items qty’s
+$itemsVisible = $quote->getAllVisibleItems();
+$grandTotal = $cart->getQuote()->getData('grand_total');
+$grandTotal = preg_replace('~\.0+$~','',$grandTotal);
+$subTotal = $cart->getQuote()->getSubtotal();
+$subTotal = preg_replace('~\.0+$~','',$subTotal);
+$bagDiscount = 0;
+$bagTotal = 0;
+
+$cartProductsOOS = 0;
+$cartProductsOOSItem = array();
+$cartProductsOOSProducts = array();
+
+$maxCodAmmont = $scopeConfig->getValue('payment/cashondelivery/max_order_total', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
+$minCodAmmount = $scopeConfig->getValue('payment/cashondelivery/min_order_total', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
+$maxCodAmmont = number_format($maxCodAmmont*$rate,2);
+$maxCodAmmont = str_replace(',', '', $maxCodAmmont);
+$isReturnAmountRate = $rate*10000;
+if($minCodAmmount == ''){
+	$minCodAmmount = 0;
+}
+
+if($quoteId && $totalQuantity){
+
+	$sql  = "select shipping_amount from quote_address where quote_id =".$quoteId." and address_type = 'shipping'";
+ 	$resultAll = $connection->fetchAll($sql);
+ 	if(isset($resultAll[0]['shipping_amount']) && $resultAll[0]['shipping_amount'] != ''){
+    	$shippingAmount = $resultAll[0]['shipping_amount'];
+	}
+
+	$tokenKey = '';
+	if($customerSession->isLoggedIn()){
+		$isLoggedIn = 1;
+		$sql = "SELECT ot.token FROM customer_entity ce INNER JOIN oauth_token ot ON ce.entity_id = ot.customer_id WHERE ce.email LIKE '".$customerEmail."' ORDER BY ot.entity_id DESC LIMIT 1;";
+		// echo $sql;
+	    $token_result = $connection->fetchAll($sql);
+	    if(isset($token_result[0]['token']) && $token_result[0]['token'] != ''){
+	    	$tokenKey = $token_result[0]['token'];
+	    }
+	}else{
+		$isLoggedIn = 0;
+		$sql = "SELECT masked_id FROM quote_id_mask WHERE quote_id = ".$quoteId." LIMIT 1";
+		$token_result = $connection->fetchAll($sql);
+		if(isset($token_result[0]['masked_id']) && $token_result[0]['masked_id'] != ''){
+			$tokenKey = $token_result[0]['masked_id'];
+		}
+	}
+?>
+
+<?php
+			$shipping = '';
+			$maxprice = '';
+			$national_min = '';
+			$national_max = '';
+			$max = '';
+			$min = '';
+			// $rate = '';
+			$Internationl_min = '';
+			$Internationl_max = '';
+			$minMaxPrice =array();
+			if($detectedCountry != 'IN'){
+				$is_style = 'display: block;';
+			}else{
+				$is_style = 'display: none;';
+			}
+            
+               //code start//
+				$query = "SELECT min_price,max_price,shipping_charge FROM flat_rate_shipping_charges WHERE country_code='IN' AND min_price='0'";
+
+				$query = "SELECT country_code,min_price,max_price,shipping_charge FROM flat_rate_shipping_charges WHERE min_price='0' GROUP BY shipping_charge";
+				$minMaxPrice = $connection->fetchAll($query);
+
+				foreach ($minMaxPrice as $key => $value) {
+					// if($detectedCountry != 'IN'){
+					// 	$max = isset($value['max_price']) ? $value['max_price'] : 15000;
+					// }else{
+					// 	$max = isset($value['max_price']) ? $value['max_price'] : 1199;
+					// }
+					if($value['country_code'] == 'IN'){
+						$national_min = isset($value['min_price']) ? $value['min_price'] : 0;
+						$national_max = isset($value['max_price']) ? $value['max_price'] : 1199;
+						$national_min = $catalogHelper->CurrencyClone(str_replace(',', '',$national_min));
+						$national_max = $catalogHelper->CurrencyClone(str_replace(',', '',$national_max));
+						$shipCharge = isset($value['shipping_charge']) ? $value['shipping_charge'] : 149;
+						$max = $national_max;
+					}else{
+						$Internationl_min = isset($value['min_price']) ? $value['min_price'] : 0;
+						$Internationl_max = isset($value['max_price']) ? $value['max_price'] : 15000;
+						$Internationl_min = $catalogHelper->CurrencyClone(str_replace(',', '',$Internationl_min));
+						$Internationl_max = $catalogHelper->CurrencyClone(str_replace(',', '',$Internationl_max));
+						$shipCharge = isset($value['shipping_charge']) ? $value['shipping_charge'] : 2000;
+						$max = $Internationl_max;
+					}
+				}
+			    
+			if (strtolower($currentCurrencyCode) != 'inr'){
+				$shipping = '(approx. '.$currencySymbol.ceil($rate*$shipCharge).')';
+				$maxprice = '(approx. '.$currencySymbol.ceil($rate*$max).')';
+			}
+?>
+
+<script type="text/javascript">
+	var shippingAddressCookie = '';
+</script>
+
+<body>
+	<!-- loader -->
+	<div class="nyloader" style="display: none;">
+		<div class="blobs">
+			<div class="blob-center">
+				<img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/N.svg'); ?>" style="height: 20px; width: 20px; margin:auto; margin-bottom: 5px;">
+			</div>
+			<div class="blob"></div>
+			<div class="blob"></div>
+			<div class="blob"></div>
+			<div class="blob"></div>
+			<div class="blob"></div>
+			<div class="blob"></div>
+		</div>
+	</div>
+
+
+
+	<div class="wraper checkout-page">
+		<!-- hidden fields -->
+		<div class="hidden-fields">
+			<input type="hidden" id="token_key" value="<?php echo $tokenKey; ?>">
+			<input type="hidden" id="quote_id" value="<?php echo $quoteId; ?>">
+			<input type="hidden" id="isLoggedIn" value="<?php echo $isLoggedIn; ?>">
+			<input type="hidden" id="currency" value="<?php echo $currencySymbol; ?>">
+			<input type="hidden" id="cartdiscountTotal" value="<?php echo $discountTotal; ?>">
+			<input type="hidden" id="cartsubtotal" value="<?php echo number_format($subTotal,2,'.',''); ?>">
+			<input type="hidden" id="cartgrdtotal" value="<?php echo number_format($grandTotal,2,'.',''); ?>">
+			<input type="hidden" id="shipping_charges" value="<?php echo $shippingAmount;?>">
+			<input type="hidden" id="customer_id" value="<?php echo $customerId; ?>">
+			<input type="hidden" id="customer_email" value="<?php echo $customerEmail; ?>">
+			<input type="hidden" id="international_shipping_days" value="<?php echo $international_shipping_days;?>">
+			<input type="hidden" id="detected_country" value="<?php echo $detectedCountry; ?>">
+
+			<input type="hidden" id="htmlArray" value=''>
+			<input type="hidden" id="productArray" value=''>
+			<input type="hidden" id="min_ship_amount" value='<?php echo $national_min;?>'>
+			<input type="hidden" id="max_ship_amount" value='<?php echo $national_max;?>'>
+			<input type="hidden" id="international_min_ship_amount" value='<?php echo $Internationl_min;?>'>
+			<input type="hidden" id="international_max_ship_amount" value='<?php echo $Internationl_max;?>'>
+			<input type="hidden" id="pincode-cod-available" value="1">
+    		<input type="hidden" id="pincode-prepaid-available" value="1">
+    		<input type="hidden" id="pincodError" value="0">
+    		<input type="hidden" id="payment_type" name="payment_type" value="">
+    		<input type="hidden" id="payable_amount" value="<?php echo $grandTotal; ?>">
+			<input type="hidden" id="new_payable_amount" value="<?php echo number_format($grandTotal, 2, '.', ''); ?>">
+			<input type="hidden" id="cod_max_ammount" value="<?php echo $maxCodAmmont; ?>" />
+			<input type="hidden" id="cod_min_ammount" value="<?php echo $minCodAmmount; ?>" />
+			<div id="fields" style="display: none;"></div>
+			<input type="hidden" id="isReturnAmount" value="<?php echo str_replace(',', '', $isReturnAmountRate);?>">
+			<input type="hidden" id="current-currency" value="<?php echo $currentCurrencyCode;?>">
+			<input type="hidden" id="notEligibleInternational" value="0">
+			<input type="hidden" id="change_addr_from_payment" value="">
+			<input type="hidden" id="edit_from_list" value="">
+			<input type="hidden" id="login_popup_open" value="">
+			<input type="hidden" id="device_type" value="<?php echo $_GET['eq'];?>">
+		</div>
+		<!-- hidden fields -->
+
+		<div class="header blur cart-head" style="display: block;">
+
+			<div class="back goback">
+				<img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-back.svg'); ?>">
+			</div>
+			<div class="title bag">SHOPPING BAG <span>(<?php echo $totalQuantity; ?>)</span></div>
+			<div class="pagenated">1/3</div>
+		</div>
+		<div class="header blur ship-head" style="display: none;">
+			<a class="back goback"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-back.svg'); ?>"></a>
+			<div class="title">ADDRESS</div>
+			<div class="pagenated">2/3</div>
+		</div>
+		<div class="header blur checkout-head" style="display: none;">
+			<a class="back goback"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-back.svg'); ?>"></a>
+			<div class="title">PAYMENT</div>
+			<div class="pagenated">3/3</div>
+		</div>
+
+		<?php
+		if($detectedCountry=='IN'){
+		    $shippMoreAmount = abs($subTotal-$national_max);
+		}else{
+			$shippMoreAmount = abs($subTotal-$Internationl_max);
+		}
+		$shippEligibleStyle = "style=display:none";
+	    $shippNotEligibleStyle = "style=display:block";
+		if($shippingAmount == 0){ 
+			  $shippEligibleStyle = "style=display:block";
+			  $shippNotEligibleStyle = "style=display:none";
+	    } ?>
+		<div class="shipping-eligible blur more">
+			<div class="icon"><img src="<?php echo $block->getViewFileUrl('	Fermion_CustomCheckout::images/truck.svg'); ?>" class="off">
+				 <img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/truck.svg'); ?>" class="on">
+			</div>
+		    <div class="text free_shipping" <?php echo $shippEligibleStyle ?>>This order is eligible for <span>Free Shipping</span>
+		    </div>
+		    <div class="text cost_shipping" <?php echo $shippNotEligibleStyle ?>>Shop for <span style="font-family: ceraRegular,sans-serif;" class="ship-more"><?php echo $currencySymbol.number_format($shippMoreAmount);?></span> more for <span>Free Shipping</span></div>
+		</div> 
+		<?php
+		$productRepository = $objectManager->get('\Magento\Catalog\Model\ProductRepository');
+		$notInternationalHtml = '<div class="noInterPopWrap"><div class="noInterPopup">
+		                         <div class="popupHead">
+		                         <div class="canelImg">
+		                         <img src="/pub/static/frontend/Nykaa/theme001/en_US/images/cancel_Del.svg">
+		                         </div>
+		                         <div class="headText">A few items in your cart are not eligible for international shipping.</div>
+		                         </div>
+		                         <div class="popupmiddle">';
+		$notInternationalIds = array();
+		?>
+
+		<div class="stock-out blur" style="display: none;">
+			<div class="title">
+				<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/item-warning.svg'); ?>"></div>
+				<div class="text"><span>Item(s) out of stock</span></div>
+				<div class="info">A few item(s) in your bag seem to be out of stock. Kindly remove them to proceed</div>
+				<div class="remove-info">REMOVE</div>
+			</div>
+		</div>
+
+		<div class="product-coloum blur">
+			<?php
+			$isReturnable = 1;
+			foreach($itemsVisible as $item) {
+				$soldOutProduct = 0;
+				$qtyErrorProduct = 0;
+				$pId = $item->getProductId();
+
+				$itemId = $item->getId();
+
+				if($item->getOptionByCode('simple_product')){
+					$childId = $item->getOptionByCode('simple_product')->getProduct()->getId();
+				}else{
+					$childId = $pId;
+				}
+				
+				$productSku = $item->getData('sku');
+
+				$product = $productModel->load($pId);
+
+				$productRepo = $productRepository->get($productSku);
+
+				$brandName ='';
+				$attr = $product->getResource()->getAttribute('brand');
+				if ($attr->usesSource()) {
+				   $brandName = $attr->getSource()->getOptionText($product->getData('brand'));
+				}
+				//$productName = trim(str_replace($brandName, '', $item->getName()));
+
+				$productName=preg_replace('~'.$brandName.'~i','',$item->getName(),1);
+
+				$isReturn = $product->getData('is_returnable');
+				if($isReturn != 1){
+					$isReturnable = 0;
+				}
+				$shipsIn = $product->getData('ships_in');
+				if($shipsIn <= 10){
+			        $shipsIn = 5;
+			    }elseif($shipsIn <= 15){
+			        $shipsIn = 7;
+			    }else{
+			        $shipsIn = round($shipsIn / 2);
+			    }
+
+			    $internationalShipsIn = $shipsIn;
+			    if($detectedCountry != 'IN'){
+                    $internationalShipsIn = $shipsIn + (int) $international_shipping_days;
+                }
+
+			    $image_url = $imageHelper->init($product, 'product_page_image_small')->setImageFile($product->getFile())->resize('200', '200')->getUrl();
+
+
+			    //Created new product instance for child to prevent over riding of product object loaded above
+			    $childProdObj = $objectManager->create('Magento\Catalog\Model\Product')->load($childId);
+			    $stockItem = $childProdObj->getExtensionAttributes()->getStockItem();
+			    $productQuantity = $stockItem->getQty();
+
+			    $isSalable = $productRepo->isSalable();
+
+			    $options = $item->getProduct()->getTypeInstance(true)->getOrderOptions($item->getProduct());
+                $options['attributes_info'] = isset($options['attributes_info']) ? $options['attributes_info'] :array();
+                $customOptions = $options['attributes_info'];
+                $attributeArr = array();
+                if (!empty($customOptions)) {
+                    foreach ($customOptions as $optionkey=>$option) { 
+                        $attributeArr[$option['label']] = $option['value'];
+                    }
+                }
+                $size = isset($attributeArr['Size']) ? 	$attributeArr['Size'] :'One Size';
+                $size1 = strtolower(str_replace(' ', '', $size));
+
+                if($size1 == 'freesize' || $size1 == 'onesize'){
+                	$sizeDisabled = 'disabled="disabled"';
+                }else{
+                	$sizeDisabled = '';
+                }
+
+                $configSizeOptions = array();
+		        $configSizeSkuOptions = array();
+
+                if($product->getTypeId() == 'configurable'){
+                	$data = $item->getProduct()->getTypeInstance()->getConfigurableOptions($item->getProduct());
+		            $options = array();
+
+		            foreach($data as $attr){
+		                foreach($attr as $p){
+		                    $options[$p['sku']][$p['attribute_code']] = $p['option_title'];
+		                }
+		            }
+		            
+		            foreach($options as $sku => $opt){
+		            	if(isset($opt['size']) && $opt['size']){
+							if(!in_array($opt['size'], $configSizeOptions)){
+								$variantProductObj = $productRepository->get($sku);
+								if($variantProductObj->isSalable() == 1){
+									array_push($configSizeOptions, trim($opt['size']));
+		            				$configSizeSkuOptions[trim($opt['size'])] = $sku;	
+								}
+		            		}
+		            	}
+		            }
+		            $configSizeOptionsJson = json_encode($configSizeOptions);
+		            $configSizeSkuOptionsJson = json_encode($configSizeSkuOptions);
+                } 
+
+                if($isSalable != 1){
+                	$soldOutProduct = 1;
+                	$cartProductsOOS = 1;
+					array_push($cartProductsOOSItem, $itemId);
+					$cartProductsOOSProducts[] = array('itemId' => $itemId, 'productId' => $pId);
+				}else if($item->getQty() > $productQuantity){
+					$qtyErrorProduct = 1;
+				} ?>
+			    <div class="product-block <?php echo $soldOutProduct == 1 ? 'sold' : ''; ?>">
+			      <div class="product-item item_id_<?php echo $itemId ?>">
+					<a href="<?php echo $product->getProductUrl(); ?>" class="image-plot"><img src="<?php echo $image_url; ?>"></a>
+					<div class="detail-block">
+						<div class="title"><?php echo $brandName; ?></div>
+						<a href="<?php echo $product->getProductUrl(); ?>" class="note">
+							<?php echo $productName; ?>
+						</a>
+						<div class="price-slot">
+							<?php 
+							if($productRepo->getSpecialPrice()){ 
+								$sp = $catalogHelper->CurrencyClone(str_replace(',', '',$productRepo->
+									getSpecialPrice()));
+								$rp = $catalogHelper->CurrencyClone(str_replace(',', '',$productRepo->getPrice()));
+								$diff = $rp - $sp;
+								$bagDiscount += $diff * $item->getQty();
+								$bagTotal += $rp * $item->getQty();
+								$percent = number_format(($diff) / $rp * 100, 0);
+
+								if($diff != 0){ ?>
+									<div class="sale-price"><?php echo $currencySymbol.number_format($sp); ?></div>
+									<div class="slash-price"><?php echo $currencySymbol.number_format($rp); ?></div>
+									<input type="hidden" class="special_price" value="<?php echo $sp; ?>">
+									<input type="hidden" class="regular_price" value="<?php echo $rp; ?>">
+									<div class="offer"><?php echo $percent.'% Off'; ?></div>
+								<?php }else{ ?>
+									<div class="sale-price"><?php echo $currencySymbol.number_format($sp); ?></div>
+									<input type="hidden" class="special_price" value="<?php echo $sp; ?>">
+									<input type="hidden" class="regular_price" value="<?php echo $rp; ?>">
+								<?php } 
+							}else{ 
+								$itemPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$item->getPrice()));
+								$bagTotal += $itemPrice * $item->getQty();
+								?>
+								<div class="sale-price"><?php echo $currencySymbol.number_format($itemPrice); ?></div>
+								<input type="hidden" class="special_price" value="<?php echo $itemPrice; ?>">
+								<input type="hidden" class="regular_price" value="<?php echo $itemPrice; ?>">
+							<?php } ?>
+							
+						</div>
+						<?php if($productQuantity <= 5 && $productQuantity != 0 && $isSalable == 1){ ?>
+							<div class="stock-left">Only <span><?php echo $productQuantity; ?></span> unit(s) in Stock</div>
+						<?php } ?>
+						
+
+						<div class="customize">
+							<div class="free-size <?php echo $sizeDisabled != '' ? 'static' : ''; ?>">
+								<div class="selected" tabindex="0"><?php echo $size; ?></div>
+								<div class="option">
+									<?php if(count($configSizeOptions)){ 
+										foreach ($configSizeOptions as $key => $value) {
+											echo '<div data-item-id="'.$itemId.'" data-sku="'.$configSizeSkuOptions[$value].'" class="value">'.$value.'</div>';
+										}
+									}else{
+										echo '<div class="value">'.$size.'</div>';
+									} ?>
+								</div>
+							</div>
+							<label class="quality <?php echo $productQuantity == 1 ? 'static' : ''; ?>" for="changeQty" name="changeQty">
+								<div class="tit">QTY : </div>
+								<div class="qty">
+									<div class="selected menu-open" tabindex="1"><?php echo $item->getQty(); ?></div>
+									<div class="option">
+										<?php for($i = 1; $i < 6; $i++){ 
+											if($i > $productQuantity){
+												break;
+											}
+											?>
+											<div class="value" data-sku="<?php echo $productSku; ?>" data-item-id="<?php echo $itemId; ?>"><?php echo $i; ?></div>
+										<?php } ?>
+									</div>
+								</div>
+							</label>
+						</div>
+						<?php
+
+						if($soldOutProduct){ ?>
+							<div class="soldout"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-soldout.svg'); ?>"></div>
+						<?php }else if($qtyErrorProduct){ ?>
+							<div class="note qty_error" style="color: red;">We Don't have as many "<?php echo $productName; ?>" as added in cart.</div>
+						<?php } ?>
+						
+					</div>
+					<div class="item-remove" onclick data-prod-id="<?php echo $pId; ?>" data-item-id="<?php echo $itemId; ?>" data-prod-qty="<?php echo $item->getQty();?>"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/item-remove.svg'); ?>"></div>
+					</div>
+
+					<?php 
+						$is_international ='';
+		                $attr = $product->getResource()->getAttribute('is_international');
+		                if ($attr->usesSource()) {
+		                    $is_international = strtolower($attr->getSource()->getOptionText($product->getData('is_international')));
+		                }
+
+		                if($is_international == 'no'){
+                             		   
+		                    array_push($notInternationalIds, $item->getId());
+							$productss = $productRepository->get($item->getSku());
+							$SpecialPrice = '';
+		                    $finalPrice = '';
+		                    if ($detectedCountry != 'IN') {
+		                        $price_key = 'price_'.strtolower($detectedCountry);
+		                        $rg_price = $item->getData('price');
+		                        $sp_price = $item->getData('special_price');
+
+		                        if(!empty($productss->getSpecialPrice())){
+		                            $sp = $productss->getSpecialPrice();
+		                        }else{
+		                            $sp = $item->getFinalPrice();
+		                        }
+
+		                        if($sp_price){
+		                            $discount_amount = $rg_price - $sp_price;
+		                            $discount_percent = round($discount_amount / $rg_price * 100);
+		                        }else{
+		                            $discount_percent = 0;
+		                            $discount_amount = 0;
+		                        }
+
+		                        $price = $productss->getData($price_key);
+		                        $new_price = $price ? $price : $rg_price;
+
+		                        if($new_price != $rg_price){
+		                            if($discount_percent != 0){
+		                                $discount_amount = number_format($discount_percent / 100 * $new_price, 4, '.', '');
+		                                $sp = number_format($new_price - $discount_amount, 4, '.', '');
+		                            }
+		                            $rg_price = $new_price;
+		                        }
+
+		                        $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$rg_price));
+		                        $SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$sp));
+		                      
+		                    }else{
+		                      if (!empty($productss->getSpecialPrice())) {
+		                        $SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productss->getSpecialPrice()));
+		                        $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$product->getData('price')));
+		                      }else{
+		                        $finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$product->getData('price')));
+		                      } 
+		                    }
+		                    $notInternationalHtml .= "<div class='productWrap ".$item->getId()."'>";
+		                    $notInternationalHtml .= "<div class='productImg'>";
+		                    $notInternationalHtml .= "<img src='$image_url'></div>";
+		                    $notInternationalHtml .= "<div class='productDetail'>";
+		                    $notInternationalHtml .= "<div class='productName'>".preg_replace('~'.$brandName.'~i','',$product->getData('name'),1);."</div>";
+		                    $notInternationalHtml .= "<div class='productDetail'>".preg_replace('~'.$brandName.'~i','',$product->getData('name'),1);
+
+		                    //str_replace($brandName,'',$product->getData('name'))."</div>";
+		                  // $prodName=preg_replace('~'.$brandName.'~i','',$product->getData('name'),1);
+            				
+		                   
+		                    if($SpecialPrice && $SpecialPrice != $finalPrice){
+		                        $notInternationalHtml .= "<div class='productPrice'><span class='offerprice'>".$currencySymbol.$SpecialPrice."</span>";
+		                        $notInternationalHtml .= "<span class='price'>".$currencySymbol.$finalPrice."</span>";
+		                    }else{
+		                        $notInternationalHtml .= "<div class='productPrice'><span class='offerprice'>".$currencySymbol.$finalPrice."</span>";
+		                    }
+		                    $notInternationalHtml .= "</div></div></div>";
+
+		                	if($detectedCountry != 'IN'){+
+		                		$notInternationalStyle = 'style="display:block;"';
+		                	}else{
+		                		$notInternationalStyle = 'style="display:none;"';
+		                	} ?>
+		                	<div class="not-eligible-international" <?php echo $notInternationalStyle; ?>>*This item is not eligible for International Shipping</div>
+
+		                <?php } 
+
+		                $domestic_date = $catalogHelper->getNextNBusinessDays($shipsIn);
+		                $domestic_date = date('jS M,Y', $domestic_date);
+
+		                $int_date = $catalogHelper->getNextNBusinessDays($internationalShipsIn);
+		                $int_date = date('jS M,Y', $int_date);
+						if($detectedCountry == 'IN'){ ?> 
+		                	<div class="estimated-days" data-domestic="<?php echo $domestic_date; ?>" data-international="<?php echo $int_date; ?>">Estimated Delivery: <?php echo $int_date; ?></div>
+		                <?php }else if($detectedCountry != 'IN' && $is_international == 'yes'){ ?>
+		                	<div class="estimated-days" data-domestic="<?php echo $domestic_date; ?>" data-international="<?php echo $int_date; ?>">Estimated Delivery: <?php echo $int_date; ?></div>
+		                <?php }else{ ?>
+		                	<div class="estimated-days" data-domestic="<?php echo $domestic_date; ?>" data-international="<?php echo $int_date; ?>" style="display: none;">Estimated Delivery: <?php echo $int_date; ?></div>
+		                <?php } ?>
+				</div>
+			<?php 
+				$productModel->reset();
+			}
+			    $notInternationalHtml .= '</div>
+	                    <div class="footer">
+	                        <div class="button removeAll"><a href="">REMOVE ALL & PROCEED</a></div>
+	                    </div>
+	                </div>';
+			?>
+		</div>
+
+		<!-- Wishlist Starts -->
+		<?php 
+		$wishlistHtml = '';
+		$pids =array();
+
+		if($customerSession->isLoggedIn()){
+			$whishlishCollection = $objectManager->create('\Magento\Wishlist\Model\ResourceModel\Item\Collection');
+			$whishlishCollection=$whishlishCollection->addCustomerIdFilter($customerSession->getCustomerId());
+			$wishlistCount = count($whishlishCollection);
+			$productdata =null;
+			if($wishlistCount){
+				$wishlistStyle = "style=display:block;";
+			}else{
+				$wishlistStyle = "style=display:none;";
+			}
+			
+			foreach ($whishlishCollection as $product){
+				$productIds = $product->getProductId();
+				$wishlistItemId = $product->getData('wishlist_item_id');
+				$productdata = $objectManager->create('Magento\Catalog\Model\Product')->load($productIds);
+
+				if ($productdata->getTypeId()=='simple') {
+					array_push($pids, $productdata->getId());
+				}
+
+				$FormKey = $objectManager->get('Magento\Framework\Data\Form\FormKey'); 
+				$listBlock = $objectManager->get('\Magento\Catalog\Block\Product\ListProduct');
+                $postParams = $listBlock->getAddToCartPostParams($productdata);
+                $uenc = isset($postParams['data'][Magento\Framework\App\Action\Action::PARAM_NAME_URL_ENCODED]) ? $postParams['data'][Magento\Framework\App\Action\Action::PARAM_NAME_URL_ENCODED] : '';
+
+				$productss = $productRepository->get($productdata->getSku());
+				$SpecialPrice='';
+				$finalPrice='';
+				if ($detectedCountry != 'IN') {
+					
+					$price_key = 'price_'.strtolower($detectedCountry);
+		            $rg_price = $productdata->getData('price');
+		            $sp_price = $productdata->getData('special_price');
+
+		            if(!empty($productss->getSpecialPrice())){
+		                $sp = $productss->getSpecialPrice();
+		            }else{
+		                $sp = $productdata->getFinalPrice();
+		            }
+
+		            if($sp_price){
+		                $discount_amount = $rg_price - $sp_price;
+		                $discount_percent = round($discount_amount / $rg_price * 100);
+		            }else{
+		                $discount_percent = 0;
+		                $discount_amount = 0;
+		            }
+
+		            $price = $productdata->getData($price_key);
+            		$new_price = $price ? $price : $rg_price;
+
+            		if($new_price != $rg_price){
+		                if($discount_percent != 0){
+		                    $discount_amount = number_format($discount_percent / 100 * $new_price, 4, '.', '');
+		                    $sp = number_format($new_price - $discount_amount, 4, '.', '');
+		                }
+		                $rg_price = $new_price;
+		            }
+
+		            $finalPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$rg_price));
+		            $SpecialPrice = $catalogHelper->CurrencyCloneCeil(str_replace(',', '',$sp));
+				}else{
+					$finalPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productdata->getData('price')));
+					if (!empty($productss->getSpecialPrice())) {
+						$SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productss->getSpecialPrice()));
+						
+					}else{
+						$SpecialPrice = $catalogHelper->CurrencyClone(str_replace(',', '',$productdata->getFinalPrice()));
+					}
+				}
+				$image_url = $imageHelper->init($productdata, 'product_page_image_small')->setImageFile($product->getFile())->resize('200', '200')->getUrl();
+				$brandName ='';
+				$attr = $productdata->getResource()->getAttribute('brand');
+				if ($attr->usesSource()) {
+				   $brandName = $attr->getSource()->getOptionText($productdata->getData('brand'));
+				}
+                //$productName = trim(str_replace($brandName, '', $product->getName()));
+                $productName=preg_replace('~'.$brandName.'~i','',$product->getData('name'),1);
+
+                $productUrl = $product->getProductUrl();
+
+				$wishlistHtml .= '<div class="product-item">';
+				$wishlistHtml .= '<input class="formkey" type="hidden" value="'.$FormKey->getFormKey().'">';
+				$wishlistHtml .= '<input class="uenc" type="hidden" value="'.$uenc.'">';
+				$wishlistHtml .= '<input class="wishlist_item_id" type="hidden" value="'.$wishlistItemId.'">';
+				$wishlistHtml .= '<a href="'.$productUrl.'" class="image-plot"><img src="'.$image_url.'"></a>';
+				$wishlistHtml .= '<div class="detail-block">';
+				$wishlistHtml .= '<div class="title">'.$brandName.'</div>';
+				$wishlistHtml .= '<a href="'.$productUrl.'" class="note">'.$productName.'</a>';
+				if($SpecialPrice && $SpecialPrice != $finalPrice){
+					$wishlistHtml .= '<div class="price-slot">
+						<div class="sale-price">'.$currencySymbol.$SpecialPrice.'</div>
+						<div class="slash-price">'.$currencySymbol.$finalPrice.'</div>
+						<div class="offer">15% Off</div>
+						</div>';
+				}else{
+					$wishlistHtml .= '<div class="price-slot"><div class="sale-price">'.$currencySymbol.$finalPrice.'</div></div>';
+				}
+				$wishlistHtml .= '</div>';
+				if($productdata->getData('is_salable')){
+					$moveToBagText = 'MOVE TO BAG';
+					$moveToBagClass = 'moveToBag';
+				}else{
+					$moveToBagText = 'OUT OF STOCK';
+					$moveToBagClass = 'moveToBag outofstock';
+				}
+				$wishlistHtml .= '<div data-type="'.$productdata->getTypeId().'" data-url="'.$productdata->getProductUrl().'?wishlist=1'.'" data-id="'.$productdata->getId().'" class="btn '.$moveToBagClass.'">'.$moveToBagText.'</div></div>';
+				$objectManager->get('Magento\Catalog\Model\Product')->reset();
+			}
+		}else{
+			$wishlistStyle = "style=display:none;";
+			$wishlistCount = '';
+		}
+		?>
+
+		<div class="wishlist-coloum blur" <?php echo $wishlistStyle; ?>>
+			<div class="head">
+				<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-wishlist.svg'); ?>"> <div class="count"><?php echo $wishlistCount; ?></div></div>
+				<div class="title">Add items from Wishlist</div>
+				<div class="drop" aria-expand="false"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-right-arrow.svg'); ?>"></div>
+				<input type="hidden" id="productArraysId" value= '<?php  echo json_encode($pids);?>'>
+			</div>
+			<div class="product-block wishlist-data">
+				<?php echo $wishlistHtml; ?>
+			</div>
+		</div>
+		<!-- Wishlist Ends -->
+
+		<div class="coupon-coloum blur <?php echo $couponcode ? 'applied' : ''; ?>">
+			<div class="head" onclick>
+				<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-coupon.svg'); ?>" class="default"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-coupon-filed.svg'); ?>" class="fill"></div>
+				<?php 
+				if($couponcode){
+					echo '<div class="title">'.$couponcode.' Applied Successfully</div>';
+				}else{
+					echo '<div class="title">Have a Coupon Code?</div>';	
+				}
+				?>
+				
+				<?php if($couponcode){
+                      $couponstyle = "style=display:block;";
+                      $couponstyle1 = "style=display:none;";
+                } else {
+                      $couponstyle = "style=display:none;";
+                      $couponstyle1 = "style=display:block;";
+                } 
+                ?>
+			    <div class="drop" aria-expand="false">
+			    	<img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-right-arrow.svg'); ?>" <?php echo $couponstyle1;?>>
+			    </div>
+			    <div class="remove couponRemove" <?php echo $couponstyle;?>>Remove</div>
+			</div>
+		</div>
+
+
+		<!-- Default Address -->
+		<div class="address-wrap blur" style="display: none;">
+		<?php
+			$shippingAddressCookie = '';
+			$shippingAddress = '';
+			$defaultFirstName = '';
+			$defaultLastName = '';
+			$defaultTelephone = '';
+			$defaultEmail = '';
+			$defaultAddrId = '';
+			$addrHtml = '';
+			$addClass = '';
+
+			if($isLoggedIn){
+				$addressCookieKey = "shippingAddress_".$customerId;
+				$shippingAddressCookie = isset($_COOKIE[$addressCookieKey]) ? $_COOKIE[$addressCookieKey] : '';
+				$customerObj = $objectManager->create('Magento\Customer\Model\Customer')->load($customerId);
+				$shippingAddress = $customerObj->getDefaultShippingAddress();
+				if($shippingAddress){
+					$addClass = 'address';
+					$defaultFirstName = $shippingAddress->getFirstname();
+					$defaultLastName = $shippingAddress->getLastname();
+					$defaultTelephone = $shippingAddress->getTelephone();
+					$defaultEmail = $customerEmail;
+					$defaultStreetArray = $shippingAddress->getStreet(1);
+					$street1 = isset($defaultStreetArray[0]) ? $defaultStreetArray[0] : '';
+					$street2 = isset($defaultStreetArray[1]) ? $defaultStreetArray[1] : '';
+					$defaultPostCode = $shippingAddress->getPostcode();
+					$defaultCity = $shippingAddress->getCity();
+					$defaultRegion = $shippingAddress->getRegion();
+					$defaultRegionId = $shippingAddress->getRegionId();
+					$defaultCountryId = $shippingAddress->getCountryId();
+					$defaultAddrId = $shippingAddress->getId();
+					$country_name = $objectManager->create('\Magento\Directory\Model\Country')->load($defaultCountryId)->getName();
+					$addrHtml = "<span>$street1 $street2</span> $defaultCity, $defaultRegion, $country_name - <span>$defaultPostCode</span>";
+				}else if($quoteAddressId != '' && $shippngAddressData['firstname'] != ''){
+					$addClass = 'address';
+					// print_r($shippngAddressData);die;
+					$defaultFirstName = $shippngAddressData['firstname'];
+					$defaultLastName = $shippngAddressData['lastname'];
+					$defaultTelephone = $shippngAddressData['telephone'];
+					$defaultEmail = $shippngAddressData['email'];
+					$street1 = $shippngAddressData['street'];
+					$street2 = '';
+					$defaultPostCode = $shippngAddressData['postcode'];
+					$defaultCity = $shippngAddressData['city'];
+					$defaultRegion = $shippngAddressData['region'];
+					$defaultRegionId = $shippngAddressData['region_id'];
+					$defaultCountryId = $shippngAddressData['country_id'];
+					$defaultAddrId = $shippngAddressData['address_id'];
+					$country_name = $objectManager->create('\Magento\Directory\Model\Country')->load($defaultCountryId)->getName();
+					$addrHtml = "<span>$street1 $street2</span> $defaultCity, $defaultRegion, $country_name - <span>$defaultPostCode</span>";
+				}
+			}else{
+				if($quoteAddressId != '' && $shippngAddressData['firstname'] != '' && !$shippingAddress){
+					$addClass = 'address 2';
+					$defaultFirstName = $shippngAddressData['firstname'];
+					$defaultLastName = $shippngAddressData['lastname'];
+					$defaultTelephone = $shippngAddressData['telephone'];
+					$defaultEmail = $shippngAddressData['email'];
+					$street1 = $shippngAddressData['street'];
+					$street2 = '';
+					$defaultPostCode = $shippngAddressData['postcode'];
+					$defaultCity = $shippngAddressData['city'];
+					$defaultRegion = $shippngAddressData['region'];
+					$defaultRegionId = $shippngAddressData['region_id'];
+					$defaultCountryId = $shippngAddressData['country_id'];
+					$defaultAddrId = $shippngAddressData['address_id'];
+					$country_name = $objectManager->create('\Magento\Directory\Model\Country')->load($defaultCountryId)->getName();
+					$addrHtml = "<span>$street1 $street2</span> $defaultCity, $defaultRegion, $country_name - <span>$defaultPostCode</span>";
+				}
+			}
+			?>
+
+		<div class="address-block default <?php echo $addClass; ?>" style="display: none;">
+			<div class="address-data">
+				<div class="default_address_data">
+					<div class="name"><?php echo $defaultFirstName.' '.$defaultLastName; ?></div>
+					<div class="address"><?php echo $addrHtml; ?></div>
+					<div class="mobile"><?php echo $defaultTelephone; ?></div>
+					<!-- <div class="email"><?php //echo $customerEmail; ?></div> -->
+				</div>
+				<div class="access">
+					<div class="button address_list" onclick>CHANGE</div>
+
+					<?php
+					if($shippingAddressCookie != ''){
+						$addressText = 'EDIT ADDRESS';
+						$showLogin = 0;
+					}else if($quoteAddressId != '' && $shippngAddressData['firstname'] != '' && !$shippingAddress){
+						$addressText = 'EDIT ADDRESS';
+						$showLogin = 0;
+					}else{
+						$addressText = 'ADD NEW ADDRESS';
+						$showLogin = 1;
+					}
+					?>
+					<div class="button add_address" onclick><?php echo $addressText; ?></div>
+				</div>
+				<form class="default_address_form">
+				</form>
+				<input type="hidden" name="" id="default_address_id" value="<?php echo $defaultAddrId; ?>">
+			</div>
+			<div class="shipalter prices_changed" style="display: none;">
+				<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/item-warning.svg'); ?>"></div>
+				<div class="text">Prices have been refreshed as per the shipping country</div>
+			</div>
+			<div class="shipalter" id="pincode-error" style="display: none;">
+				Sorry, we currently do not ship at your location.
+			</div>
+		</div>
+		
+		<div class="mobcartpara">
+			<p class="international_shipping shipalter" style="<?php echo $detectedCountry != 'IN' ? 'display: block;' : 'display: none;'; ?>">International shipping cost outside India is free for orders for <?php echo "INR".number_format($max);?> or more <?php echo $maxP = (isset($maxprice) && !empty($maxprice)) ? $maxprice : ''; ?>.International shipping cost is <?php echo "INR".number_format($shipCharge); ?> <?php echo $ship = (isset($shipping) && !empty($shipping)) ? $shipping : '';?> for orders under <?php echo "INR".number_format($max);?>.</p>
+
+			<p id="customduty" class="shipalter" style="<?php echo $detectedCountry != 'IN' ? 'display: block;' : 'display: none;'; ?>"> *An item's price and availability may change when you select your shipping destination. If you do not wish your order to be shipped to <span>India</span>, please update your <span>Shipping Destination</span><br>Please note, all prices exclude customs duties and tax.<br><br></p>
+		</div>
+
+		<!-- <div class="address-wrap blur add_new_address" style="display: none;"> -->
+			<?php 
+			if($showLogin && !$isLoggedIn){ ?>
+				<div class="signin-up">LOGIN FOR SAVED ADDRESS</div>
+				<div class="or">OR</div>	
+			<?php } ?>
+			
+			
+			<div class="form add_new_address" style="display: none;">
+				<!-- <div class="title"><?php //echo $addressText; ?></div> -->
+				<div class="form-input invalid">
+					<label>Full Name</label>
+					<input type="text" id="fullname" name="fullname" autocomplete="new-password" value="">
+					<div class="error"></div>
+				</div>
+				<?php
+				if(!$isLoggedIn){ 
+					$emailStyle = "style=display:block;";
+					$emailVal = '';
+				}else{
+					$emailStyle = "style=display:none;";
+					$emailVal = $customerEmail;
+				} ?>
+				<div class="form-input" <?php echo $emailStyle; ?>>
+					<label>Email</label>
+					<input type="text" name="email" value="<?php echo $emailVal; ?>" id="email" autocomplete="new-password">
+					<div class="error"></div>
+				</div>
+				
+				<div class="form-input">
+					<label>Phone Number</label>
+					<input type="tel" name="number" id="number" minlength="5" maxlength="15" onkeypress="return fnNotAlphabet(event);" autocomplete="new-password" value="">
+					<div class="error"></div>
+				</div>
+				<div class="form-input">
+					<label>Pin Code</label>
+					<input type="tel" id="pincode" name="pincode" maxlength="12" minlength="3" autocomplete="new-password" value="">
+					<div class="error"></div>
+				</div>
+				<div class="form-input">
+					<label>Address</label>
+					<textarea id="address" autocomplete="new-password" name="address" maxlength="150" minlength="10"></textarea>
+					<div class="error"></div>
+				</div>
+
+				<div class="form-input country" style="display: none;">
+					<label>Country</label>
+					<select id="country_id" onchange="Changecountry(this,'')">
+						<option value="">Select Country</option>
+						<?php 
+						foreach ($allowedCountries as $key => $value) {
+							$country_name =$objectManager->create('\Magento\Directory\Model\Country')->load($key)->getName();
+							$country_name = str_replace(' SAR China', '', $country_name);
+							$country_options .= "<option value=$key>$country_name</option>";
+						}
+						echo $country_options; ?>
+					</select>
+					<div class="error"></div>
+				</div>
+
+				<div class="form-input state" style="display: none;">
+					<label>State</label>
+					<input type="hidden" name="region_id" id="region_id" value="">
+					<!-- <input type="hidden" name="region_code" id="region_code"> -->
+					<select id="state">
+					<?php 
+					if (!empty($stateResult)) {
+						$stateHtml .='<option value="">Select State/Region/Province</option>';
+						foreach ($stateResult as $key => $res) {
+							$stateHtml .= "<option value='".$res['default_name']."' region-code='".$res['code']."' region-id='".$res['region_id']."'>".$res['default_name']."</option>";
+							}
+						}
+						echo $stateHtml; ?>
+					</select>
+					<div class="error"></div>
+				</div>
+
+				<div class="form-input city" style="display: none;">
+					<label>City</label>
+					<input type="text" id="city" name="city" autocomplete="new-password" value="">
+					<div class="error"></div>
+				</div>
+				<div class="agree" style="display: none;">
+					<label class="checkbox-label">
+						<input type="checkbox" name="">
+						<div class="checkbox"></div>
+					</label>
+					<div class="text">Use this as your Default Address</div>
+				</div>
+			</div>
+		</div>
+		<!-- Default Address -->
+
+
+		<!-- Saved Addresses -->
+		<?php 
+		$customerAddress = array();
+		$customerObj = $objectManager->create('Magento\Customer\Model\Customer')->load($customerId);
+		foreach ($customerObj->getAddresses() as $address){
+		    $customerAddress[] = $address->toArray();
+		} ?>
+		<div class="saved-address-coloum" style="display: none;">
+			<div class="head">
+				<div class="back goback"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-back.svg'); ?>"></div>
+				<div class="title saved_addresses">SAVED ADDRESSES</div>
+				<div class="pagenated">2/3</div>
+			</div>
+			<div class="address-block">
+				<?php 
+				if($showLogin == 1){
+					$newAddressStyle = "style=display:block;";
+				}else{
+					$newAddressStyle = "style=display:none;";
+				} ?>
+				<div class="add-new" <?php echo $newAddressStyle; ?> onclick>
+					<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/address-filled.svg'); ?>"></div>
+					<span>ADD NEW ADDRESS</span>
+				</div>
+				<?php 
+				if(count($customerAddress)){ 
+					foreach ($customerAddress as $key => $shippingAddress) {
+						$firstName = isset($shippingAddress['firstname']) ? $shippingAddress['firstname'] : ''; 
+			            $lastName =  isset($shippingAddress['lastname']) ? $shippingAddress['lastname'] : '';
+			            $telephone = isset($shippingAddress['telephone']) ? $shippingAddress['telephone'] : '';
+			            $email = $customerEmail;
+			            $street = isset($shippingAddress['street']) ? $shippingAddress['street'] : '';
+			            $postcode = isset($shippingAddress['postcode']) ? $shippingAddress['postcode'] : '';
+			            $city = isset($shippingAddress['city']) ? $shippingAddress['city'] : '';
+			            $region = isset($shippingAddress['region']) ? $shippingAddress['region'] : '';
+			            $id = isset($shippingAddress['entity_id']) ? $shippingAddress['entity_id'] : '';
+			            $region_id = isset($shippingAddress['region_id']) ? $shippingAddress['region_id'] : '';
+			            $country_id = isset($shippingAddress['country_id']) ? $shippingAddress['country_id'] : '';
+			            $country_name = $objectManager->create('\Magento\Directory\Model\Country')->load($country_id)->getName();
+
+			            $addressHtml = "<span>$street</span> $city, $region, $country_name - <span>$postcode</span>";
+					?>
+					<label class="address-box">
+						<input type="radio" name="address" data-value="<?php echo $id; ?>">
+						<div class="block">
+							<div class="checkbox"></div>
+							<div class="address-data">
+								<div class="name"><?php echo "$firstName $lastName"; ?></div>
+								<div class="address"><?php echo $addressHtml; ?></div>
+								<div class="mobile"><?php echo $telephone; ?></div>
+								<!-- <div class="email"><?php //echo $customerEmail; ?></div> -->
+								<!-- <div class="edit">EDIT/ CHANGE</div> -->
+							</div>
+							<div class="shipping_address_data" style="display: none;">
+								<div class="name"><?php echo $firstName.' '.$lastName; ?></div>
+								<div class="address"><?php echo $addressHtml; ?></div>
+								<div class="mobile"><?php echo $telephone; ?></div>
+								<!-- <div class="email"><?php //echo $customerEmail; ?></div> -->
+							</div>
+							<form class="shipping_address_form" action="POST">
+								<input type="hidden" name="email" class="shipping_email" value="<?php echo $email; ?>">
+								<input type="hidden" name="firstname" class="shipping_firstname" value="<?php echo $firstName; ?>">
+								<input type="hidden" name="lastname" class="shipping_lastname" value="<?php echo $lastName; ?>">
+								<input type="hidden" name="telephone" class="shipping_telephone" value="<?php echo $telephone; ?>">
+								<input type="hidden" name="street[]" class="shipping_address" value="<?php echo $street; ?>">
+								<input type="hidden" name="postcode" class="shipping_pincode" value="<?php echo $postcode; ?>">
+								<input type="hidden" name="city" class="shipping_city" value="<?php echo $city; ?>">
+								<!-- <input type="hidden" name="region_code" class="shipping_region_code" value="MH"> -->
+								<input type="hidden" name="region_id" class="shipping_region_id" value="<?php echo $region_id; ?>">
+								<input type="hidden" name="country_id" class="shipping_country_id" value="<?php echo $country_id; ?>">
+								<input type="hidden" name="region" class="shipping_region" value="<?php echo $region; ?>">
+								<input type="hidden" name="same_as_billing" class="shipping_same_as_billing" value="1">
+								<!-- <input type="hidden" name="customer_address_id" class="shipping_customer_address_id" value="<?php //echo $id; ?>"> -->
+								<input type="hidden" name="save_in_address_book" class="shipping_save_in_address_book" value="0">
+							</form>
+						</div>
+					</label>
+		<?php }  } 
+
+			if($isLoggedIn == 0){
+				$addressCookieKey = "shippingAddress_guest";
+			}else{
+				$addressCookieKey = "shippingAddress_".$customerId;
+				$customerObj = $objectManager->create('Magento\Customer\Model\Customer')->load($customerId);
+				$shippingAddress = $customerObj->getDefaultShippingAddress();
+			}
+				
+			$shippingAddressCookie = isset($_COOKIE[$addressCookieKey]) ? $_COOKIE[$addressCookieKey] : '';
+				
+			if($shippingAddressCookie != ''){ 
+				//echo $shippingAddressCookie; causing issue in safari.
+				?>
+				<script type="text/javascript">
+					var shippingAddressCookieKey = '<?php echo $addressCookieKey; ?>';
+					shippingAddressCookie = '<?php echo $shippingAddressCookie; ?>';
+					//set address using session storage
+				</script>
+			<?php }else if($quoteAddressId != '' && $shippngAddressData['firstname'] != '' && !$shippingAddress){
+				$shippingAddress = $quote->getShippingAddress()->getData();
+				// print_r($shippingAddress);die;
+				$firstName = isset($shippingAddress['firstname']) ? $shippingAddress['firstname'] : ''; 
+	            $lastName =  isset($shippingAddress['lastname']) ? $shippingAddress['lastname'] : '';
+	            $email =  isset($shippingAddress['email']) ? $shippingAddress['email'] : '';
+	            $telephone = isset($shippingAddress['telephone']) ? $shippingAddress['telephone'] : '';
+	            $street = isset($shippingAddress['street']) ? $shippingAddress['street'] : '';
+	            $postcode = isset($shippingAddress['postcode']) ? $shippingAddress['postcode'] : '';
+	            $city = isset($shippingAddress['city']) ? $shippingAddress['city'] : '';
+	            $region = isset($shippingAddress['region']) ? $shippingAddress['region'] : '';
+	            $id = isset($shippingAddress['address_id']) ? $shippingAddress['address_id'] : '';
+	            $region_id = isset($shippingAddress['region_id']) ? $shippingAddress['region_id'] : '';
+	            $country_id = isset($shippingAddress['country_id']) ? $shippingAddress['country_id'] : '';
+	            $country_name = $objectManager->create('\Magento\Directory\Model\Country')->load($country_id)->getName();
+
+	            $addressHtml = "<span>$street</span> $city, $region, $country_name - <span>$postcode</span>"; ?>
+
+	            <label class="address-box quote_address">
+					<input type="radio" name="address" data-value="<?php echo $id; ?>">
+					<div class="block">
+						<div class="checkbox"></div>
+						<div class="address-data">
+							<div class="name"><?php echo "$firstName $lastName"; ?></div>
+							<div class="address"><?php echo $addressHtml; ?></div>
+							<div class="mobile"><?php echo $telephone; ?></div>
+							<!-- <div class="email"><?php //echo $customerEmail; ?></div> -->
+							<div class="edit edit_address" onclick>Edit</div>
+						</div>
+						<div class="shipping_address_data" style="display: none;">
+							<div class="name"><?php echo $firstName.' '.$lastName; ?></div>
+							<div class="address"><?php echo $addressHtml; ?></div>
+							<div class="mobile"><?php echo $telephone; ?></div>
+							<!-- <div class="email"><?php //echo $customerEmail; ?></div> -->
+						</div>
+						<form class="shipping_address_form" action="POST">
+							<input type="hidden" name="email" class="shipping_email" value="<?php echo $email; ?>">
+							<input type="hidden" name="firstname" class="shipping_firstname" value="<?php echo $firstName; ?>">
+							<input type="hidden" name="lastname" class="shipping_lastname" value="<?php echo $lastName; ?>">
+							<input type="hidden" name="telephone" class="shipping_telephone" value="<?php echo $telephone; ?>">
+							<input type="hidden" name="street[]" class="shipping_address" value="<?php echo $street; ?>">
+							<input type="hidden" name="postcode" class="shipping_pincode" value="<?php echo $postcode; ?>">
+							<input type="hidden" name="city" class="shipping_city" value="<?php echo $city; ?>">
+							<!-- <input type="hidden" name="region_code" class="shipping_region_code" value="MH"> -->
+							<input type="hidden" name="region_id" class="shipping_region_id" value="<?php echo $region_id; ?>">
+							<input type="hidden" name="country_id" class="shipping_country_id" value="<?php echo $country_id; ?>">
+							<input type="hidden" name="region" class="shipping_region" value="<?php echo $region; ?>">
+							<input type="hidden" name="same_as_billing" class="shipping_same_as_billing" value="1">
+							<!-- <input type="hidden" name="customer_address_id" class="shipping_customer_address_id" value="<?php //echo $id; ?>"> -->
+							<input type="hidden" name="save_in_address_book" class="shipping_save_in_address_book" value="0">
+						</form>
+					</div>
+				</label>
+				<?php } ?>
+			</div>
+			<div class="cta">
+				<div class="cancel addressCancel" onclick>CANCEL</div>
+				<div class="apply shiptobtn" onclick>CONTINUE</div>
+			</div>
+			<!-- <div class="button active shiptobtn">CONTINUE</div> -->
+		</div>
+		<!-- Saved Addresses -->
+
+		<!-- remove item from cart html removed-->
+		<div class="popup-cover" style="display: none;"></div>
+		<div class="popup-cover-black"></div>
+
+		<div class="coupons-coloum">
+			<div class="head">
+				<div class="back"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-back.svg'); ?>"></div>
+				<div class="title">COUPONS</div>
+			</div>
+
+			<div class="form-block">
+				<div class="form">
+					<?php
+					if($couponcode){
+						$couponInputStyle = "style=pointer-events:none;";
+					}else{
+						$couponInputStyle = '';
+					}
+					?>
+					<div class="input"><input autocomplete="new-password" type="text" id="couponcode" value="<?php echo $couponcode; ?>" placeholder="Enter Coupon Code" <?php echo $couponInputStyle; ?>></div>
+					<!-- <div class="button couponApply"><?php //echo $couponcode ? 'Remove' : 'Apply'; ?></div> -->
+				</div>
+				<div class="invalid" style="display: none;">
+					<div class="icon">x</div>
+					<div class="text">Invalid Coupon</div>
+				</div>
+			</div>
+
+			<?php
+			$showCouponList = 0;
+			$isCouponListing = 0;
+
+			if($customerSession->isLoggedIn()){
+				if(!$catalogHelper->isCouponUsedByCustomer($customerEmail,'ndsnew10')){
+					$showCouponList = 1;
+				}
+			}else{
+				$showCouponList = 1;
+			}
+				
+			if($showCouponList == 1){
+				$couponModel = $objectManager->get('\Magento\SalesRule\Model\Coupon');
+    			$couponObj = $couponModel->loadByCode('ndsnew10');
+    			$ruleId = $couponObj->getRuleId();
+    			if($ruleId){
+    				$salesRule = $objectManager->get('\Magento\SalesRule\Model\Rule');
+            		$rule = $salesRule->load($ruleId);
+            		$endDate = strtotime($rule->getToDate());
+            		$isActive = $rule->getIsActive();
+            		// $ruleAction = $rule->getData('simple_action');
+            		$ruleDiscount = $rule->getData('discount_amount');
+            		$currentTime = time();
+                   
+            		if($isActive && $endDate > $currentTime){
+            			$couponSavings = $ruleDiscount / 100 * $subTotal;
+            			$isCouponListing = 1;
+            		}
+    			}
+    			if($isCouponListing == 1){ ?>
+				<div class="or">OR</div>
+				<div class="collection">
+					<label class="code couponsList">
+						<input type="radio" data-code="NDSNEW10" name="coupon">
+						<div class="radio"></div>
+						<div class="detail">
+							<div class="title">NDSNEW10</div>
+							<div class="note">FLAT 10% OFF on your first purchase</div>
+							<div class="saved"><?php echo $currencySymbol.number_format($couponSavings,2); ?></div>
+						</div>
+					</label>
+				</div>
+			<?php } } ?>
+
+			<!-- <div class="toastMsgWrap couponLoder" style="display: none;">
+				<div class="toastMsg">
+					<div class="text">Applying Coupon….</div>
+				</div>
+			</div> -->
+			<div class="notifi" style="display: none;">Applying Coupon….</div>
+			<div class="pageOverlay" style="display:none;"></div>
+			<div class="cta">
+				<div class="cancel couponCancel">CANCEL</div>
+				<div class="apply couponApply">APPLY</div>
+			</div>
+		</div>
+
+		<div class="checkout-wrap blur" style="display: none;">	
+			<div class="payment-options">
+				<div class="title">SELECT MODE OF PAYMENT</div>
+
+				<div class="saved-cards">
+				</div>
+
+				<div class="section">
+					<div class="block" data-type="payu">
+						<div class="head" aria-expand="false">
+							<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/pay-card.svg'); ?>"></div>
+							<div class="title">Credit/Debit Card</div>
+							<div class="drop-arow"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/payment-drop.svg'); ?>"></div>
+						</div>
+						<div class="data credit_debit">
+							<div class="addcard">
+								<div class="form">
+									<div class="form-input">
+										<div class="error"></div>
+										<input type="text" name="" id="card_number" placeholder="Card Number">
+										
+									</div>
+									<div class="form-input">
+										<div class="error"></div>
+										<input type="text" name="" id="card_name" placeholder="Name on Card">
+										<div class="optional" style="display: none;">Optional</div>
+									</div>
+									<div class="form-input expiry">
+										<div class="error"></div>
+										<input type="text" maxlength="7" name="" id="card_expiry" placeholder="Expiry">
+									</div>
+									<div class="form-input cvv">
+										<div class="error"></div>
+										<input type="password" name="" id="card_cvv" placeholder="CVV" minlength="3" maxlength="4">
+										<input type="hidden" id="card_number_valid" value="0">
+										<input type="hidden" id="card_type" value="">
+										<input type="hidden" id="card_category" value="">
+
+										<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cvv-verify.svg'); ?>"></div>
+									</div>
+								</div>
+								<div class="agree">
+									<label class="checkbox-label">
+										<input type="checkbox" class="save_card" checked="checked" name="">
+										<div class="checkbox"></div>
+									</label>
+									<div class="text">Save this card for Quicker Checkouts</div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="block" data-type="payu">
+						<div class="head" aria-expand="false">
+							<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/net-card.svg'); ?>"></div>
+							<div class="title">Net Banking</div>
+							<div class="drop-arow"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/payment-drop.svg'); ?>"></div>
+						</div>
+						<div class="data netbanking">
+							<div class="netbank">
+								<div class="selected">
+									<div class="banks">
+										<div class="logo" data-code="ICIB"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/icici.svg"></div>
+										<div class="name">ICICI</div>
+									</div>
+									<div class="banks">
+										<div class="logo" data-code="162B"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/kotak.svg"></div>
+										<div class="name">KOTAK</div>
+									</div>
+									<div class="banks">
+										<div class="logo" data-code="HDFB"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/hdfc.svg"></div>
+										<div class="name">HDFC</div>
+									</div>
+									<div class="banks">
+										<div class="logo" data-code="SBIB"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/sbi.svg"></div>
+										<div class="name">SBI</div>
+									</div>
+								</div>
+								<div class="other">
+									<select id="payment_bank">
+										<option value="">Other Banks</option>
+										<option value="AXIB">Axis Bank</option>
+										<option value="ADBB">Andhra Bank</option>
+										<option value="BOIB">Bank of India</option>
+										<option value="BOMB">Bank of Maharashtra</option>
+										<option value="CABB">Canara Bank</option>
+										<option value="CSBN">Catholic Syrian Bank </option>
+										<option value="CBIB">Central Bank Of India</option>
+										<option value="CUBB">CityUnion</option>
+										<option value="CRPB">Corporation Bank</option>
+										<option value="DCBCORP">DCB Bank - Corporate Netbanking</option>
+										<option value="DSHB">Deutsche bank Netbanking</option>
+										<option value="DCBB">Development Credit Bank</option>
+										<option value="DLSB">Dhanlaxmi Netbanking</option>
+										<option value="FEDB">Federal Bank</option>
+										<option value="INDB">Indian Bank</option>
+										<option value="INOB">Indian Overseas Bank</option>
+										<option value="INIB">IndusInd Bank</option>
+										<option value="IDBB">Industrial Development Bank of India</option>
+										<option value="JAKB">Jammu and Kashmir Bank</option>
+										<option value="JSBNB">Janata Sahakari Bank</option>
+										<option value="KRKB">Karnataka Bank</option>
+										<option value="KRVBC">Karur Vysya - Corporate Netbanking</option>
+										<option value="KRVB">Karur Vysya - Retail Netbanking</option>
+										<option value="TBON">Nainital Bank</option>
+										<option value="PSBNB">Punjab and Sind Bank</option>
+										<option value="CPNB">Punjab Nation Bank - Corporate Netbanking</option>
+										<option value="PNBB">Punjab Nation Bank - Retail Netbanking </option>
+										<option value="SRSWT">Saraswat Bank</option>
+										<option value="SOIB">South Indian Bank</option>
+										<option value="SBBJB">State Bank of Bikaner and Jaipur</option>
+										<option value="SBHB">State Bank of Hyderabad</option>
+										<option value="SBMB">State Bank of Mysore</option>
+										<option value="SBPB">State Bank of Patiala</option>
+										<option value="SBTB">State Bank of Travancore</option>
+										<option value="UBIBC">Union Bank - Corporate Netbanking</option>
+										<option value="UBIB">Union Bank - Retail Netbanking</option>
+										<option value="UNIB">United Bank Of India</option>
+										<option value="VJYB">Vijaya Bank</option>
+										<option value="YESB">Yes Bank</option>
+									</select>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="block" data-type="cashondelivery">
+						<div class="head" aria-expand="false">
+							<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/wallet-card.svg'); ?>"></div>
+							<div class="title">Cash On Delivery</div>
+							<div class="drop-arow"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/payment-drop.svg'); ?>"></div>
+						</div>
+						<div class="data cashondelivery">
+							<div class="cod">
+								<div class="text" id="cod_available" style="display: none;">Kindly pay <span class="cod_amount"><?php echo $currencySymbol.number_format($grandTotal,2); ?></span> cash when items are delivered to you</div>
+								<div class="warning" id="cod_not_available" style="display:none;">One or more items in your cart is non-returnable. COD is only applicable for orders less than Rs 10,000 when one or more item(s) is not returnable.</div>
+								<div class="warning" id="pin-cod-section" style="display:none;">Sorry, COD is not applicable for your pincode. Please select other modes for payment </div>
+								<!-- <span id="cod_available">Place order using COD.</span> -->
+								<div class="warning" id="international_mess" style="display: none;">Cash on Delivery is not available for International Shipping. Kindly select Credit/ Debit Card or Net Banking for payment.</div>
+								<div class="text" id="full" style="display: none;">Cash on Delivery is applicable in INR currency only. To proceed</div>
+								<div class="convert" style="display: none;" id="curr_change" onclick="changeCurrency()">
+									<a href="javascript:void(0)">Click here</a>  to convert the amount in INR</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="address-block payment">		
+				<div class="head">
+					<div class="title">SHIPPING ADDRESS</div>
+				</div>
+				<!--<div class="address-data">
+					<div class="button">CHANGE</div>
+				</div>-->
+			</div>
+		</div>
+
+
+		<div class="summary-coloum blur" id="price_summary">
+			<div class="head">
+				<div class="title">PRICE SUMMARY</div>
+			</div>
+			<div class="tables">
+				<?php
+				$savings = $bagDiscount + $discountTotal;
+				$savingsStyle = $savings > 0 ? '' : 'style="display:none;"';
+				?>
+				<input type="hidden" id="is_returnable" value="<?php echo $isReturnable; ?>" />
+				<input type="hidden" id="bagTotal" value="<?php echo number_format($bagTotal,2,'.',''); ?>">
+				<input type="hidden" id="bagDiscount" value="<?php echo number_format($bagDiscount,2,'.',''); ?>">
+				<input type="hidden" id="savings" value="<?php echo number_format($savings,2,'.',''); ?>">
+				<div class="rows">
+					<div class="cols">Bag Total</div>
+					<div class="cols bagTotal"><?php echo $currencySymbol.number_format($bagTotal,2); ?></div>
+				</div>
+				<?php
+				if($bagDiscount > 0){
+					$bagDiscountStyle = "style=display:block;";
+				}else{
+					$bagDiscountStyle = "style=display:none;";
+				}
+				?>
+				<div class="rows selection" <?php echo $bagDiscountStyle; ?>>
+					<div class="cols">Bag Discount</div>
+
+					<div class="cols num color bagDiscount"><?php echo '-'.$currencySymbol.number_format($bagDiscount,2); ?></div>
+				</div>
+				<div class="rows">
+					<div class="cols">Sub Total</div>
+					<div class="cols subTotal"><?php echo $currencySymbol.number_format($subTotal,2); ?></div>
+				</div>
+				<?php
+					if($isCouponListing == 1){
+						$couponRowStyle = "style=display:block;";
+					}else if($isCouponListing == 0 && $discountTotal > 0){
+						$couponRowStyle = "style=display:block;";
+					}else{
+						$couponRowStyle = "style=display:none;";
+					}
+				?>
+				<div class="rows selection coupon" <?php echo $couponRowStyle; ?>>
+					<div class="cols">Coupon Discount</div>
+				<?php if($discountTotal > 0 || $isCouponListing == 0) {?>
+					<div class="cols num color couponDiscount"><?php echo '-'.$currencySymbol.number_format($discountTotal,2); ?></div>
+				<?php }else if($isCouponListing == 1){ ?>
+					<div class="cols coupon-open str apply-coupon" onclick>Apply Coupon</div>
+				<?php }else{
+
+				} ?>
+				</div>
+				<div class="rows selection">
+					<div class="cols">Shipping Charges
+						<?php 
+                           $tooltips = "style=display:none;";
+						if($shippingAmount > 0) {
+						   $tooltips = "style=display:inline-block;";
+					    }
+						?>
+				<div class="info ship-tooltips" tabindex="0" <?php echo $tooltips;?>>
+							<img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/info-circle.svg'); ?>">
+							<div class="tooltips">
+								<?php
+								$shipChargeText = 'Shipping Charge';
+								
+								if($detectedCountry != 'IN'){
+									$shipChargeText = 'International '.$shipChargeText;
+									$shipChargeValue = $Internationl_max;
+								}else{
+									$shipChargeValue = $national_max;
+								}
+								?>
+								<span class="ship_charge"><?php echo $shipChargeText; ?></span> of <span class="shipp-tool"><?php echo $currencySymbol. number_format($shippingAmount,2);?></span> is applicable on orders below <?php echo $currencySymbol.$shipChargeValue;?>
+							</div>
+			    </div>
+					    
+					</div>
+					<div class="cols shippingCharges"><?php echo $currencySymbol.number_format($shippingAmount,2); ?></div>
+				</div>
+				<div class="rows total">
+					<div class="cols">Grand Total</div>
+					<div class="cols grandTotal"><?php echo $currencySymbol.number_format($grandTotal,2); ?></div>
+				</div>
+			</div>
+			<div class="saving" <?php echo $savingsStyle; ?>>
+				<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-saving.svg'); ?>"></div>
+				<div class="title savings">Congrats! You saved <span><?php echo $currencySymbol.number_format($savings,2); ?></span> on this order</div>
+			</div>
+		</div>
+
+		<!-- <div class="safe-secure blur">
+			<div class="icon"><img src="<?php //echo $block->getViewFileUrl('Fermion_CustomCheckout::images/cart-safe.svg'); ?>"></div>
+			<div class="title">Safe & Secure Payments | 100% Authentic Products</div>
+		</div> -->
+
+		<div class="proceed-coloum blur">
+			<div class="detail">
+				<div class="price"><?php echo $currencySymbol.number_format($grandTotal,2); ?></div>
+				<a href="javascript:void(0)" class="view details">View Details</a>
+			</div>
+			<div class="button active place_order cart_page" onclick>PLACE ORDER</div>
+		</div>
+
+		<div class="proceed-cta blur">
+			<div class="cancel addAddrCancel">CANCEL</div>
+			<div class="apply addAddrSubmit">SAVE</div>
+		</div>
+
+		<div class="popup-cover" style="display: none;"></div>
+		<div class="warning-alert" style="display: none;">
+			<div class="icon"><img src="<?php echo $block->getViewFileUrl('Fermion_CustomCheckout::images/pay-warning.svg'); ?>"></div>
+			<div class="text">Kindly select mode of payment to proceed.</div>
+			<div class="button">OKAY</div>
+		</div>
+		<div class="confirm-cod">
+			<div class="head">CASH ON DELIVERY</div>
+			<div class="msg">Pay <span class="cod_amount"><?php echo $currencySymbol.number_format($grandTotal,2); ?></span> by cash. Are you sure you want to continue?</div>
+			<div class="access">
+				<div class="cancel">CANCEL</div>
+				<div class="continue">CONTINUE</div>
+			</div>
+		</div>
+</div>
+<!-- wrapper ends -->
+
+	<div class="notInternational" style="display: none;">
+    	<div class="notInternationalChild" data-total="<?php echo count($itemsVisible); ?>" data-remove="<?php echo count($notInternationalIds); ?>">
+        	<input type="hidden" id="removeProdIds" value='<?php echo json_encode($notInternationalIds); ?>'>
+        <?php echo $notInternationalHtml; ?>
+       </div>
+	</div>		
+
+<?php }else{ ?>
+	<style type="text/css">
+		.thirdSection{display: none;}
+		@media (max-width:768px){.nyContinueShop{width:100%;height:auto;float:left;margin-top:82px}.nyContinueShop .nyContinueimg{width:100%;height:auto;float:left;padding:40px 0 0;text-align:center}.nyContinueShop .nyContinueimg img{width:70%}.nyContinueShop .nyContinueBtn{width:100%;height:auto;float:left;text-align:center;position:relative}.nyContinueShop .nyContinueBtn a{float:none;width:50%;margin:0 auto;background-color:#000;padding:15px;font-family:ceraBold;font-size:14px;font-weight:700;font-style:normal;font-stretch:normal;line-height:50px;letter-spacing:normal;text-align:center;color:#fff}}
+	</style>
+	<div class="wraper" style="filter: blur(0px);">
+		<!--Header Section-->
+		<header>
+				<div class="headBar blur"></div>		
+				<div class="nyHeader">				
+				<div class="nySectionBlock blur col-lg-4 col-md-4 col-sm-4 col-xs-4">
+					<a href="/" class="logo"><img src="/pub/media/logo/stores/1/nykaa_logo.svg"></a>
+				</div>
+				<br class="spacer">		
+				</div>
+		</header>
+		<div class="nyContinueShop">
+			<div class="nyContinueimg">
+				<img src="/pub/static/frontend/Nykaa/theme001/en_US/Magento_Theme/images/emptyCart.jpg" alt="Empty Cart">
+			</div>
+			<div class="nyContinueBtn">
+				<a href="/">Continue Shopping</a>
+			</div>
+		</div>
+	</div> 
+
+<?php } ?>
+
+
+	<script type="text/javascript">
+		var isoutofstock = '<?php echo $cartProductsOOS; ?>';
+		var cartProductsOOSItem = '<?php echo json_encode($cartProductsOOSItem); ?>';
+		var cartProductsOOSProducts = '<?php echo json_encode($cartProductsOOSProducts); ?>';
+		if(isoutofstock == 1){
+			jQuery('.stock-out').show();
+		}
+
+
+		jQuery(function(){
+			// jQuery(".wishlist-data").slick({
+			// 	dots: false,
+			// 	arrows: false,
+			//     infinite: false,
+			//     slidesToShow: 1.2,
+			//     slidesToScroll: 1,
+
+			// });
+
+			jQuery('.wishlist-coloum .head').on('click',function(){
+				if(jQuery(this).find('.drop').attr('aria-expand') === 'false'){
+					jQuery(this).find('.drop').attr('aria-expand', 'true');
+					jQuery(this).parent().find('.product-block').slideDown();
+					jQuery('.wishlist-data').slick('reinit');
+				}
+				else{
+					jQuery(this).find('.drop').attr('aria-expand', 'false');
+					jQuery(this).parent().find('.product-block').slideUp();	
+				}
+			});
+			
+
+			jQuery('.product-coloum .product-block .product-item .item-remove').on('click',function(){
+
+				var itemId = jQuery(this).data('item-id');
+				var pid = jQuery(this).data('prod-id');
+				var pidqty = jQuery(this).data('prod-qty');
+				var imageSrc = jQuery(this).closest('.product-item').find('.image-plot img').attr('src');
+				if(jQuery('.remove-item-coloum.'+itemId).length){
+					jQuery('.remove-item-coloum.'+itemId).fadeIn();
+					jQuery('.blur').addClass('on');
+					jQuery('.popup-cover').fadeIn();
+				}else{
+					var removeHtml = '<div class="remove-item-coloum '+itemId+'">';
+					removeHtml += '<div class="close"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/item-close.svg"></div>';
+					removeHtml += '<div class="item-block">';
+					removeHtml += '<div class="image-plot"><img src="'+imageSrc+'"></div>';
+					removeHtml += '<div class="detail">';
+					removeHtml += '<div class="title">Remove Item</div>';
+					removeHtml += '<div class="note">Are you sure you want to remove this item from bag?</div>';
+					removeHtml += '</div></div>';
+					removeHtml += '<div class="button-block">';
+					var removeClass = '';
+					if(jQuery('#isLoggedIn').val() == 1){
+						removeHtml += '<div class="move-to-wish" data-prod-id="'+pid+'" data-item-id="'+itemId+'" onclick>MOVE TO WISHLIST</div>';	
+					}else{
+						removeClass = 'removeCartOnly';
+					}
+					removeHtml += '<div class="remove removeCart '+removeClass+'" data-prod-id="'+pid+'" data-item-id="'+itemId+'" data-item-qty="'+pidqty+'" onclick>REMOVE</div>';
+					removeHtml += '</div></div>';
+					jQuery('.wraper').append(removeHtml);
+					jQuery('.remove-item-coloum.'+itemId).fadeIn();
+					jQuery('.blur').addClass('on');
+					jQuery('.popup-cover').fadeIn();
+				}
+			});
+
+			jQuery('.remove-info').click(function(){
+				if(jQuery('.remove-item-coloum.removeAllProducts').length){
+					jQuery('.remove-item-coloum.removeAllProducts').fadeIn();
+					jQuery('.blur').addClass('on');
+					jQuery('.popup-cover').fadeIn();
+				}else{
+					var imageSrc = jQuery('.product-block.sold:first').find('.image-plot img').attr('src');
+					var count = jQuery('.product-block.sold').length - 1;
+					console.log(count);
+
+					var removeHtml = '<div class="remove-item-coloum removeAllProducts">';
+					removeHtml += '<div class="close"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/item-close.svg"></div>';
+					removeHtml += '<div class="item-block">';
+					removeHtml += '<div class="image-plot"><img src="'+imageSrc+'">';
+					if(count){
+						removeHtml += '<div class="icon"><img src="/pub/static/frontend/Nykaa/theme001/en_US/Fermion_CustomCheckout/images/product-qty.svg"><div class="count">+'+count+'</div></div>';
+					}
+
+					removeHtml += '</div>';
+					removeHtml += '<div class="detail">';
+					removeHtml += '<div class="title">Remove Item(s) that are Out of Stock</div>';
+					removeHtml += '<div class="note">Are you sure you want to remove this item(s) from bag?</div>';
+					removeHtml += '</div></div>';
+					removeHtml += '<div class="button-block">';
+					var removeClass = '';
+					if(jQuery('#isLoggedIn').val() == 1){
+						removeHtml += '<div class="move-to-wish moveAll" onclick>MOVE ALL TO WISHLIST</div>';	
+					}else{
+						removeClass = 'removeCartOnly';
+					}
+					removeHtml += '<div class="'+removeClass+' remove removeCart removeAllProducts" onclick>REMOVE ALL</div>';
+					removeHtml += '<input type="hidden" id="remove_oos" value='+cartProductsOOSItem+'>';
+					removeHtml += '<input type="hidden" id="move_to_wish_oos" value='+cartProductsOOSProducts+'>';
+					removeHtml += '</div></div>';
+					jQuery('.wraper').append(removeHtml);
+					jQuery('.remove-item-coloum.removeAllProducts').fadeIn();
+					jQuery('.blur').addClass('on');
+					jQuery('.popup-cover').fadeIn();
+				}
+			});
+
+			jQuery('body').on('click','.remove-item-coloum .close',function(){
+				jQuery('.remove-item-coloum').fadeOut();
+				jQuery('.blur').removeClass('on');
+				jQuery('.popup-cover').fadeOut();
+			});
+
+			jQuery('.popup-cover,.popup-cover-black').on('click',function(){
+				jQuery('.remove-item-coloum,.popup-cover,.warning-alert,.confirm-cod,.popup-cover-black').fadeOut();
+				jQuery('.blur').removeClass('on');
+			});
+
+		});
+
+		if(shippingAddressCookie != ''){
+			var address = localStorage.getItem(shippingAddressCookieKey);
+			jQuery('.saved-address-coloum .address-block').append(address);
+		}
+	</script>
+</body>
