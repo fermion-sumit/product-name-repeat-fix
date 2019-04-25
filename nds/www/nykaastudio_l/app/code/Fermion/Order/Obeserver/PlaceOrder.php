@@ -33,9 +33,13 @@ class PlaceOrder implements ObserverInterface {
 		$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
 
         #####  // added by shubhanshu for getting payment method #######
-        $payment = $order->getPayment();
-        $method = $payment->getMethodInstance();
-        $methodTitle = $method->getTitle();
+           $payment = $order->getPayment();
+   		   $methodTitle = $payment->getMethod();
+    		if($methodTitle == 'cashondelivery'){
+    	    $methodTitle = 'COD';
+   			 }else{
+    	    $methodTitle = 'Online';
+  			  }
         ###################################################
 		$storeManager = $objectManager->get('\Magento\Store\Model\StoreManagerInterface');
 		$currencyCode = $storeManager->getStore()->getCurrentCurrencyCode();
@@ -143,11 +147,26 @@ class PlaceOrder implements ObserverInterface {
 		$producttobe_removed_array = array();
 		$connection = $resource->getConnection();
 
-
-
+	   $totalMrp = 0;
+       $bagDiscount = 0;
 		foreach($allItems as $item) {
 			$itemId = $item->getId();
 
+			  $itemData = $item->getData();
+            $originalPrice = isset($itemData['original_price']) ? $itemData['original_price'] : 0;
+              $originalPrice  = $originalPrice * $itemData['qty_ordered'];
+            $totalMrp += $originalPrice;
+            $itemPrice = isset($itemData['price']) ? $itemData['price'] : 0;
+            $itemPrice  = $itemPrice * $itemData['qty_ordered'];
+            
+                    if($originalPrice == $itemPrice){
+                        $isSpecialPrice = 0;
+                    }else{
+                        $isSpecialPrice = 1;
+                    }
+                    $difference = $originalPrice - $itemPrice;
+                    $bagDiscount += $difference;
+			
 			$productID = $item->getProductId();
 			
 			$qty = round($item->getQtyOrdered());
@@ -187,11 +206,6 @@ class PlaceOrder implements ObserverInterface {
 				$color = $_product->getResource()->getAttribute('primary_color')->getFrontend()->getValue($_product);
 				$color = isset($color) ? $color : 'NA';
 				$name = $_product->getName();
-				$name=preg_replace('~'.$brand.'~i','',$_product->getName(),1);
-
-
-
-
 				$options = $item->getData('product_options');
 				$attributes = isset($options['attributes_info']) ? $options['attributes_info'] : array();
 				$attr = array();
@@ -228,6 +242,8 @@ class PlaceOrder implements ObserverInterface {
 						</tr>';
 			$objectManager->get('Magento\Catalog\Model\Product')->reset();
 		}
+		 $totalMrp = number_format($totalMrp,2);
+         $bagDiscount = number_format($bagDiscount,2);
 		
 		$total = $currencyModel->format($order->getSubTotal(), ['symbol' => $currencySymbol, 'precision'=> $precision], false, false);
 		$grandTotal = $currencyModel->format($order->getGrandTotal(), ['symbol' => $currencySymbol, 'precision'=> $precision], false, false);
@@ -237,34 +253,52 @@ class PlaceOrder implements ObserverInterface {
 		$discountAmt = $currencyModel->format($order->getDiscountAmount(), ['symbol' => $currencySymbol, 'precision'=> $precision], false, false);
 		$discountLine ='';
 $discountprice ='';
-		if((int)$order->getDiscountAmount() != 0){
+		                         if($order->getDiscountAmount() != 0){
 									$discountLine .='<p>Discount<span style="float:right">:</span></p>';	
-									$discountprice .='<p>'.$discountAmt.'</p>';
+									$discountprice .='<p style="color:#50e3c2">'.$discountAmt.'</p>';
 									}
 		//$shippingAddress = $order->getShippingAddress()->getData();
 		$html .= '<tr style="border: none;display: inline-block;
-    width: 100%; color:#f38379; padding:20px 0px;"><td>'.$offerText.'</td></tr></table><table width="100%" style="border-top:1px solid #000;border-bottom: 1px solid #000;"> 
-							<tr>
-								<td></td>
-								<td colspan="2" align="left" width="40%">
-								    <p>Payment Method<span style="float:right">:</span></p>
-									<p>Unit Total<span style="float:right">:</span></p>'
-									.$discountLine.
-									'<p>Shipping Charges<span style="float:right">:</span></p>
-									<p>Grand Total<span style="float:right">:</span></p>									
-								</td>
-								<td align="right" width="30%">
-								    <p>'.$methodTitle.'</p>
-									<p>'.$total.'</p>'
-									 .$discountprice .
-									'<p>'.$shipping.'</p>
-									<p>'.$grandTotal.'</p>
-								</td>
-							</tr>
+    width: 100%; color:#f38379; padding:20px 0px;"><td>'.$offerText.'</td></tr></table><table width="100%" style="border-top:1px solid #FFF;border-bottom: 1px solid #000;"> 
+							  <tr>
+        <td></td>
+        <td colspan="2" align="left" width="55%">
+        <p>Total MRP<span style="float:right">:</span></p>';
+
+        if((int)$bagDiscount > 0){
+         $html .= '<p>Bag Discounts<span style="float:right">:</span></p>';     
+        }
+                
+        $html .= '<p>Subtotal<span style="float:right">:</span></p>';
+      
+          if($order->getDiscountAmount() != 0){
+            $html .= '<p>Coupon Discount<span style="float:right">:</span></p>';
+          }
+
+          $html .= '<p>Delivery Charges<span style="float:right">:</span></p>
+        <p>Grand Total<span style="float:right">:</span></p>
+        <p>Mode of Payment<span style="float:right">:</span></p>
+
+        </td>
+        <td align="right" width="30%">
+        <p>'.$currencySymbol.$totalMrp.'</p>';
+        if((int)$bagDiscount > 0){
+           $html .=  '<p  style="color:#50e3c2">'.'-'.$currencySymbol.$bagDiscount.'</p>';
+        }
+        $html .= '<p>'.$total.'</p>';
+
+        if($order->getDiscountAmount() != 0){
+        $html .=   '<p>'.$discountprice.'</p>';
+       }
+         $html .= '<p>'.$shipping.'</p>
+        <p>'.$grandTotal.'</p>
+        <p>'.$methodTitle.'</p>
+        </td>
+        </tr>
 						</table>
 						<table width="100%" class="address" style="font-size: 0.875em;
 								margin-top:10px;">
-							<tr style="border-bottom: 1px solid #000;display: inline-block;margin-bottom: 30px;padding-bottom: 20px;">
+							<tr style="border-bottom: 1px solid #FFF;display: inline-block;margin-bottom: 30px;padding-bottom: 20px;">
 								<td width="50%">
 									<p class="title" style="font-weight: 900;
 								font-size: 1.125em">SHIPPING DETAILS</p>
